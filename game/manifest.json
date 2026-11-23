@@ -1,0 +1,10 @@
+[
+ "index.html",
+ "js/data.js",
+ "js/engine.js",
+ "js/game.js",
+ "js/tex.js",
+ "js/three.module.min.js",
+ "js/ui.js",
+ "js/world.js"
+]

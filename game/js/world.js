@@ -1,0 +1,485 @@
+import * as THREE from 'three';
+import { Builder, rand, randi, pick } from './engine.js';
+
+export const ROADS = [-110, -40, 40, 110];
+export const RW = 12, EDGE = 172;
+export const ZONES = {
+  surface: { y: 0.15, name: 'SECTOR-07' },
+  subway: { y: -12, name: 'Subway' },
+  sewer: { y: -26, name: 'The Sewers' },
+  vibe: { y: -50, name: 'Vibe Check' },
+};
+export const zoneOfY = (y) => y > -6 ? 'surface' : y > -19 ? 'subway' : y > -38 ? 'sewer' : 'vibe';
+
+const BLK = [[-EDGE, -116], [-104, -46], [-34, 34], [46, 104], [116, EDGE]];
+
+export function makeCharacter(shirt = 0x3a6ea5, pants = 0x2a2a2a, skin = 0xf2c99a, hat) {
+  const g = new THREE.Group();
+  const m = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const part = (w, h, d, c, x, y, z, parent = g) => { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m(c)); me.position.set(x, y, z); me.castShadow = true; parent.add(me); return me; };
+  const legL = new THREE.Group(), legR = new THREE.Group(), armL = new THREE.Group(), armR = new THREE.Group();
+  legL.position.set(-0.17, 0.9, 0); legR.position.set(0.17, 0.9, 0); armL.position.set(-0.47, 1.62, 0); armR.position.set(0.47, 1.62, 0);
+  part(0.32, 0.9, 0.32, pants, 0, -0.45, 0, legL); part(0.32, 0.9, 0.32, pants, 0, -0.45, 0, legR);
+  part(0.3, 0.86, 0.3, skin, 0, -0.43, 0, armL); part(0.3, 0.86, 0.3, skin, 0, -0.43, 0, armR);
+  part(0.31, 0.4, 0.31, shirt, 0, -0.18, 0, armL); part(0.31, 0.4, 0.31, shirt, 0, -0.18, 0, armR);
+  const torso = part(0.64, 0.76, 0.34, shirt, 0, 1.28, 0);
+  const head = part(0.4, 0.4, 0.4, skin, 0, 1.88, 0);
+  part(0.08, 0.06, 0.01, 0x111111, -0.09, 1.92, -0.205); part(0.08, 0.06, 0.01, 0x111111, 0.09, 1.92, -0.205);
+  if (hat) part(0.44, 0.14, 0.44, hat, 0, 2.12, 0);
+  g.add(legL, legR, armL, armR);
+  const hand = new THREE.Group(); hand.position.set(0, -0.82, -0.12); armR.add(hand);
+  g.userData = { legL, legR, armL, armR, torso, head, hand };
+  return g;
+}
+
+function rectsMinus(r, h) {
+  const [x0, z0, x1, z1] = r, [hx0, hz0, hx1, hz1] = h, out = [];
+  if (hz0 > z0) out.push([x0, z0, x1, hz0]);
+  if (hz1 < z1) out.push([x0, hz1, x1, z1]);
+  if (hx0 > x0) out.push([x0, hz0, hx0, hz1]);
+  if (hx1 < x1) out.push([hx1, hz0, x1, hz1]);
+  return out;
+}
+
+export function buildWorld(scene) {
+  const B = new Builder(scene);
+  const W = {
+    atms: [], dealers: [], armories: [], rebelSpots: [], registers: [], safes: [], scrap: [], crates: [],
+    airdrops: [], teleports: [], spawns: [], labels: [], zones: ZONES, lamps: [], waters: [], pits: [], buildings: [],
+    trackZone: null, objects: [], under: {},
+  };
+  B.mat('road', 0x55565a); B.mat('lot', 0x86898c); B.mat('dirt', 0x7e6c58); B.mat('court', 0xa85a3c); B.mat('line', 0xd8d2b0, { offset: true });
+  B.mat('concrete', 0xa3a5a6); B.mat('brick', 0xa0573f); B.mat('brick2', 0x7d6052); B.mat('plaster', 0xc9bba0); B.mat('dark', 0x4a4a50);
+  B.mat('metal', 0x7a848e); B.mat('rust', 0x9a6040); B.mat('wood', 0x9a7448); B.mat('roof', 0x56575c); B.mat('glass', 0x7fa6c4, { emissive: 0x1a2a3a, emissiveIntensity: 0.6 });
+  B.mat('wall', 0x8e9092); B.mat('rock', 0x6e6860); B.mat('trim', 0x3a3a3e); B.mat('container', 0x3a6e94); B.mat('container2', 0xa8482f);
+  B.mat('container3', 0x5e8448); B.mat('sewer', 0x6a705e); B.mat('sewerwall', 0x6a6458); B.mat('tile', 0xcfc8b6); B.mat('rail', 0x6a5440);
+  B.mat('grate', 0x6a6a6a); B.mat('vibe', 0x6a5a74); B.mat('neon', 0xff3fa0, { emissive: 0xff3fa0, emissiveIntensity: 0.9 });
+  B.mat('lamp', 0xffe7a8, { emissive: 0xffd890, emissiveIntensity: 1 }); B.mat('green', 0x2f8a4a, { emissive: 0x1f6a3a, emissiveIntensity: 0.6 });
+  B.mat('sign', 0x223355); B.mat('redsign', 0x8a1f1f, { emissive: 0x501010, emissiveIntensity: 0.5 }); B.mat('bluesign', 0x1f4a9a, { emissive: 0x10306a, emissiveIntensity: 0.5 });
+  B.mat('fence', 0x8a8a82); B.mat('black', 0x2c2c2e); B.mat('carred', 0x9a2a24); B.mat('carblue', 0x2c5288); B.mat('cargray', 0x7a7a7a); B.mat('tire', 0x1a1a1a);
+  B.mat('counter', 0x5a3f2a); B.mat('pizza', 0xb8862a);
+
+  // ---------- ground ----------
+  for (const rx of ROADS) B.box('road', rx, -1, 0, RW, 1, EDGE * 2);
+  const xs = [-EDGE, ...ROADS.flatMap(r => [r - RW / 2, r + RW / 2]), EDGE];
+  for (const rz of ROADS) for (let i = 0; i < xs.length; i += 2) B.box('road', (xs[i] + xs[i + 1]) / 2, -1, rz, xs[i + 1] - xs[i], 1, RW);
+  const blockMat = {};
+  blockMat['4,3'] = 'dirt';
+  B.mat('walk', 0xb2b3b2);
+  const SW = 3.5;
+  BLK.forEach(([x0, x1], i) => BLK.forEach(([z0, z1], j) => {
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, w = x1 - x0, d = z1 - z0;
+    B.box('walk', cx, -1, z0 + SW / 2, w, 1.15, SW); B.box('walk', cx, -1, z1 - SW / 2, w, 1.15, SW);
+    B.box('walk', x0 + SW / 2, -1, cz, SW, 1.15, d - 2 * SW); B.box('walk', x1 - SW / 2, -1, cz, SW, 1.15, d - 2 * SW);
+    B.box(blockMat[i + ',' + j] || 'lot', cx, -1, cz, w - 2 * SW, 1.15, d - 2 * SW);
+  }));
+  for (const rx of ROADS) for (let z = -EDGE + 4; z < EDGE; z += 8) if (!ROADS.some(r => Math.abs(z - r) < 7)) B.box('line', rx, 0, z, 0.25, 0.03, 3, { solid: false });
+  for (const rz of ROADS) for (let x = -EDGE + 4; x < EDGE; x += 8) if (!ROADS.some(r => Math.abs(x - r) < 7)) B.box('line', x, 0, rz, 3, 0.03, 0.25, { solid: false });
+
+  // ---------- perimeter: brutalist wall + rock ----------
+  const H = 30;
+  B.box('wall', 0, -1, -EDGE - 2, EDGE * 2 + 8, H, 4); B.box('wall', 0, -1, EDGE + 2, EDGE * 2 + 8, H, 4);
+  B.box('wall', -EDGE - 2, -1, 0, 4, H, EDGE * 2); B.box('wall', EDGE + 2, -1, 0, 4, H, EDGE * 2);
+  for (let t = -EDGE; t <= EDGE; t += 24) {
+    B.box('concrete', t, -1, -EDGE - 0.6, 3, H + 1, 1.2, { solid: false }); B.box('concrete', t, -1, EDGE + 0.6, 3, H + 1, 1.2, { solid: false });
+    B.box('concrete', -EDGE - 0.6, -1, t, 1.2, H + 1, 3, { solid: false }); B.box('concrete', EDGE + 0.6, -1, t, 1.2, H + 1, 3, { solid: false });
+  }
+  for (let i = 0; i < 70; i++) {
+    const side = i % 4, t = rand(-EDGE - 30, EDGE + 30), off = EDGE + rand(8, 40), s = rand(14, 34), h = rand(30, 70);
+    const [x, z] = side === 0 ? [t, -off] : side === 1 ? [t, off] : side === 2 ? [-off, t] : [off, t];
+    B.box('rock', x, -1, z, s, h, s * rand(0.7, 1.3), { solid: false });
+  }
+
+  // ---------- helpers ----------
+  const zoneTag = { zone: 'surface' };
+  const building = (o) => {
+    const { x, z, w, d, h = 5, floors = 1, mat = 'brick', door = 's', doorW = 2.6, name, alarm = false, roofMat = 'roof', floorMat = 'tile', y0 = 0.15, sign, windows = true, doors2 } = o;
+    const fh = h, total = fh * floors, t = 0.4;
+    const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
+    const bld = { name, x, z, w, d, alarm, x0, x1, z0, z1, floors, fh, y0 };
+    W.buildings.push(bld);
+    const doorsOn = new Set([door, ...(doors2 || [])]);
+    const wallSeg = (side) => {
+      const horiz = side === 'n' || side === 's';
+      const len = horiz ? w : d - 2 * t;
+      const cz = side === 'n' ? z0 + t / 2 : side === 's' ? z1 - t / 2 : z;
+      const cx = side === 'w' ? x0 + t / 2 : side === 'e' ? x1 - t / 2 : x;
+      const has = doorsOn.has(side);
+      if (!has) { horiz ? B.box(mat, cx, y0, cz, len, total, t) : B.box(mat, cx, y0, cz, t, total, len); return; }
+      const a = (len - doorW) / 2;
+      if (horiz) {
+        B.box(mat, x0 + a / 2, y0, cz, a, total, t); B.box(mat, x1 - a / 2, y0, cz, a, total, t);
+        B.box(mat, cx, y0 + 3, cz, doorW, total - 3, t);
+      } else {
+        B.box(mat, cx, y0, z0 + t + a / 2, t, total, a); B.box(mat, cx, y0, z1 - t - a / 2, t, total, a);
+        B.box(mat, cx, y0 + 3, cz, t, total - 3, doorW);
+      }
+    };
+    ['n', 's', 'e', 'w'].forEach(wallSeg);
+    const ix0 = x0 + t, ix1 = x1 - t, iz0 = z0 + t, iz1 = z1 - t;
+    B.box(floorMat, x, y0, z, ix1 - ix0, 0.12, iz1 - iz0);
+    for (let f = 1; f <= floors; f++) {
+      const fy = y0 + f * fh - 0.3;
+      if (f < floors) {
+        const east = f % 2 === 1;
+        const hole = east ? [ix1 - 2.4, iz0 + 0.1, ix1, iz0 + 7.4] : [ix0, iz0 + 0.1, ix0 + 2.4, iz0 + 7.4];
+        for (const r of rectsMinus([ix0, iz0, ix1, iz1], hole)) B.box(floorMat, (r[0] + r[2]) / 2, fy, (r[1] + r[3]) / 2, r[2] - r[0], 0.3, r[3] - r[1]);
+        const sx = (hole[0] + hole[2]) / 2, steps = Math.ceil(fh / 0.42), run = (hole[3] - hole[1] - 0.6) / steps;
+        for (let s = 0; s < steps; s++) {
+          const top = y0 + (f - 1) * fh + 0.12 + (s + 1) * (fh / steps);
+          const base = y0 + (f - 1) * fh + (f === 1 ? 0.12 : 0);
+          B.box('concrete', sx, base, hole[3] - (s + 0.5) * run, 2.4, top - base, run);
+        }
+        B.box('rail', east ? hole[0] - 0.08 : hole[2] + 0.08, fy + 0.3, (hole[1] + 2.6 + hole[3]) / 2, 0.12, 1, hole[3] - hole[1] - 2.6);
+      } else B.box(roofMat, x, fy, z, w + 0.4, 0.4, d + 0.4);
+    }
+    B.box('trim', x, y0 + total + 0.1, z0 + 0.15, w + 0.4, 0.6, 0.3);
+    B.box('trim', x, y0 + total + 0.1, z1 - 0.15, w + 0.4, 0.6, 0.3);
+    if (windows) for (let f = 0; f < floors; f++) for (let wx = x0 + 2.5; wx < x1 - 2; wx += 3.5) {
+      for (const [zz, s] of [[z0 - 0.06, 'n'], [z1 + 0.06, 's']]) {
+        if (doorsOn.has(s) && Math.abs(wx - x) < doorW) continue;
+        B.box('glass', wx, y0 + f * fh + 1.5, zz, 1.4, 1.4, 0.1, { solid: false });
+      }
+    }
+    if (sign) {
+      const sz = door === 's' ? z1 + 0.25 : door === 'n' ? z0 - 0.25 : z;
+      const sx2 = door === 'e' ? x1 + 0.25 : door === 'w' ? x0 - 0.25 : x;
+      const horiz = door === 'n' || door === 's';
+      B.box(sign.mat || 'sign', sx2, y0 + 3.4, sz, horiz ? Math.min(w - 2, 8) : 0.3, 1.1, horiz ? 0.3 : Math.min(d - 2, 8), { solid: false });
+      W.labels.push({ text: sign.text, x: sx2 + (door === 'e' ? 0.2 : door === 'w' ? -0.2 : 0), y: y0 + 3.95, z: sz + (door === 's' ? 0.2 : door === 'n' ? -0.2 : 0), rot: { s: 0, n: Math.PI, e: Math.PI / 2, w: -Math.PI / 2 }[door], color: sign.color || '#ffffff' });
+    }
+    return bld;
+  };
+  const doorPos = (b, side = 's', out = 1.5) => side === 's' ? [b.x, b.z1 + out] : side === 'n' ? [b.x, b.z0 - out] : side === 'e' ? [b.x1 + out, b.z] : [b.x0 - out, b.z];
+  const counter = (x, z, w, d, y = 0.27) => B.box('counter', x, y, z, w, 1.05, d);
+  const reg = (x, y, z, rot, bld) => W.registers.push({ x, y, z, rot, alarm: bld?.alarm, zone: zoneOfY(y), bld: bld?.name });
+  const safe = (x, y, z, rot, big, bld) => W.safes.push({ x, y, z, rot, big, alarm: bld?.alarm, zone: zoneOfY(y), bld: bld?.name });
+  const atm = (x, z, rot, y = 0.15, name = '') => { W.atms.push({ x, y, z, rot, name }); };
+  const dealer = (x, z, rot, name, y = 0.15) => W.dealers.push({ x, y, z, rot, name, kind: 'dealer' });
+  const scrap = (x, y, z, gold = false) => W.scrap.push({ x, y, z, gold, zone: zoneOfY(y) });
+  const crate = (x, y, z, kind = 'red') => W.crates.push({ x, y, z, kind, zone: zoneOfY(y) });
+  const label = (text, x, z, type) => W.labels.push({ text, x, z, map: true, type });
+
+  const car = (x, z, rot, m = pick(['carred', 'carblue', 'cargray', 'rust'])) => {
+    const c = Math.cos(rot), s = Math.sin(rot), L = 4.4, Wd = 2;
+    const ax = Math.abs(c) > 0.5;
+    B.box(m, x, 0.35, z, ax ? L : Wd, 0.9, ax ? Wd : L);
+    B.box(m, x - (ax ? 0.3 : 0), 1.25, z - (ax ? 0 : 0.3), ax ? 2.2 : Wd - 0.1, 0.7, ax ? Wd - 0.1 : 2.2);
+    for (const a of [-1, 1]) for (const b of [-1, 1]) B.box('tire', x + (ax ? a * 1.4 : b * 1.02), 0, z + (ax ? b * 1.02 : a * 1.4), ax ? 0.7 : 0.3, 0.7, ax ? 0.3 : 0.7, { solid: false });
+  };
+  const container = (x, z, ax = true, stack = 1, m = pick(['container', 'container2', 'container3'])) => {
+    for (let k = 0; k < stack; k++) B.box(k % 2 ? pick(['container', 'container2', 'container3']) : m, x, 0.15 + k * 2.6, z, ax ? 12 : 2.5, 2.6, ax ? 2.5 : 12);
+  };
+  const woodStack = (x, z) => { B.box('wood', x, 0.15, z, 2.4, 0.8, 1.2); B.box('wood', x + 0.1, 0.95, z, 2.2, 0.6, 1.1); };
+  const lampPost = (x, z) => { B.box('metal', x, 0.15, z, 0.25, 6, 0.25); B.box('lamp', x, 6.15, z, 0.9, 0.25, 0.5, { solid: false }); };
+  const fence = (x0, z0, x1, z1, h = 3) => { B.box('fence', (x0 + x1) / 2, 0.15, (z0 + z1) / 2, Math.max(0.15, Math.abs(x1 - x0)), h, Math.max(0.15, Math.abs(z1 - z0))); };
+
+  // ---------- CENTRAL PLAZA (block 2,2) — Central safehouse, Thrift Store, Subway headhouse ----------
+  label('Central Plaza', 0, 10, 'poi');
+  const thrift = building({ x: 0, z: -22, w: 24, d: 18, h: 5, mat: 'plaster', door: 's', name: 'Thrift Store', alarm: true, sign: { text: 'THRIFT', color: '#ffd36b' } });
+  counter(-6, -20, 6, 1.2); reg(-7.5, 1.32, -20, 0, thrift); reg(-4.5, 1.32, -20, 0, thrift);
+  B.box('plaster', 4, 0.27, -24, 0.3, 4.6, 8); safe(8, 0.27, -28.5, 0, true, thrift);
+  for (let i = 0; i < 3; i++) B.box('wood', -8 + i * 4, 0.27, -28, 2.5, 2, 1);
+  scrap(-9, 0.27, -16); label('Thrift Store', 0, -22, 'zone');
+  const safehouse = building({ x: -18, z: 18, w: 12, d: 10, h: 4.5, mat: 'concrete', door: 'e', name: 'Central Safehouse', sign: { text: 'SAFEHOUSE', color: '#9be3ff' } });
+  W.spawns.push([-18, 18], [12, 22], [-4, 6]);
+  const sub = building({ x: 16, z: 18, w: 8, d: 6, h: 4, mat: 'trim', door: 'w', name: 'Subway Entrance', windows: false, sign: { text: 'SUBWAY', color: '#ffffff', mat: 'bluesign' } });
+  W.teleports.push({ x: 14, y: 0.27, z: 18, to: 'subway', tx: -36, tz: 9, label: 'Go down to Subway' });
+  label('Subway', 16, 18, 'zone');
+  atm(-6, 2, 0, 0.15, 'Plaza ATM'); atm(6, 2, 0, 0.15, 'Plaza ATM 2');
+  B.box('concrete', 0, 0.15, 14, 6, 0.8, 6); B.box('glass', 0, 0.95, 14, 5, 0.1, 5, { solid: false });
+  lampPost(-10, 10); lampPost(10, 10); lampPost(-28, -4); lampPost(28, -4);
+  W.teleports.push({ x: 10, y: 0.15, z: -33, to: 'sewer', tx: 0, tz: -40, label: 'Climb down manhole (Thrift sewer)' });
+  B.box('metal', 10, 0.15, -33, 1.4, 0.06, 1.4, { solid: false });
+  W.airdrops.push([0, 26]);
+  woodStack(-26, 28); woodStack(24, 30);
+
+  // ---------- block 2,1: Cafe + Barber ----------
+  const cafe = building({ x: 0, z: -60, w: 20, d: 14, h: 5, mat: 'brick', door: 's', name: 'Cafe', alarm: true, sign: { text: 'CAFE', color: '#ffb27a' } });
+  counter(-3, -60, 8, 1.2); reg(-4, 1.32, -60, 0, cafe);
+  B.box('brick', 3.5, 0.27, -64.5, 0.3, 4.6, 4.4); B.box('brick', 6.5, 0.27, -60.3, 6.2, 4.6, 0.3);
+  safe(8, 0.27, -65, 0, false, cafe);
+  for (const [tx, tz] of [[-6, -55], [0, -55], [6, -55]]) { B.box('wood', tx, 0.27, tz, 1.4, 0.8, 1.4); }
+  label('Cafe', 0, -60, 'zone'); atm(-7, -51.5, 0, 0.15, 'Cafe ATM');
+  const barber = building({ x: -22, z: -88, w: 12, d: 10, h: 4.5, mat: 'plaster', door: 'e', name: 'Barber Shop', alarm: true, sign: { text: 'BARBER', color: '#ff8080' } });
+  counter(-20, -91, 1.2, 3); reg(-20, 1.32, -91.5, Math.PI / 2, barber);
+  B.box('dark', -25, 0.27, -86, 1.2, 1.2, 1.2); B.box('dark', -25, 0.27, -90, 1.2, 1.2, 1.2);
+  label('Barber Shop', -22, -88, 'poi');
+  car(-38 + 2, -75, Math.PI / 2); car(-42, -60, Math.PI / 2); lampPost(-28, -50);
+
+  // ---------- block 3,1: Basketball court + dealer ----------
+  B.box('court', 75, 0, -78, 26, 0.24, 16);
+  for (const zz of [-78]) B.box('line', 75, 0.24, zz, 0.2, 0.02, 16, { solid: false });
+  for (const xx of [63.5, 86.5]) { B.box('metal', xx, 0.24, -78, 0.25, 3.2, 0.25); B.box('glass', xx + (xx < 75 ? 0.4 : -0.4), 3.2, -78, 0.1, 1.1, 1.6, { solid: false }); }
+  fence(61, -87, 89, -87, 3.4); fence(61, -69, 70, -69, 3.4); fence(80, -69, 89, -69, 3.4); fence(61, -87, 61, -69, 3.4); fence(89, -87, 89, -69, 3.4);
+  label('Basketball Court', 75, -78, 'zone');
+  dealer(53, -66, Math.PI / 2, 'Basketball Dealer'); B.box('green', 52.3, 2.8, -66, 0.1, 0.25, 0.25, { solid: false });
+  atm(52, -90, Math.PI / 2, 0.15, 'Basketball ATM');
+  W.airdrops.push([75, -78]);
+  const apt1 = building({ x: 80, z: -56, w: 30, d: 12, h: 4, floors: 3, mat: 'brick2', door: 'n', name: 'Apartments', sign: null });
+  scrap(70, 0.27, -55); scrap(70, 4.15, -57);
+
+  // ---------- block 3,2: Armory 1 (blue) ----------
+  const arm1 = building({ x: 62, z: -24, w: 16, d: 12, h: 5, mat: 'concrete', door: 'n', name: 'Armory 1', sign: { text: 'ARMORY', color: '#9fc6ff', mat: 'bluesign' } });
+  counter(62, -24, 10, 1.2);
+  W.armories.push({ x: 62, y: 0.27, z: -22, rot: 0, name: 'Armory 1', color: 'blue' });
+  label('Armory 1', 62, -24, 'armory');
+  car(70, -38 + 2, 0); woodStack(90, 0); container(84, 20, true, 2);
+  building({ x: 70, z: 14, w: 22, d: 14, h: 5, mat: 'brick', door: 'w', name: 'Storefronts' });
+  scrap(62, 0.27, 14);
+
+  // ---------- block 0,0: Tower ----------
+  const tower = building({ x: -142, z: -142, w: 18, d: 18, h: 4, floors: 5, mat: 'concrete', door: 's', name: 'Tower', alarm: true, sign: { text: 'TOWER', color: '#ffffff' } });
+  for (let f = 0; f < 5; f++) {
+    const yy = f === 0 ? 0.27 : 0.15 + f * 4;
+    if (f === 1 || f === 4) safe(-144, yy, -149.5, 0, true, tower);
+    if (f === 0 || f === 2 || f === 3) safe(-139.5, yy, -149.5, 0, false, tower);
+    if (f === 2 || f === 4) crate(-148, yy, -136, 'red');
+    if (f !== 1) scrap(-136, yy, -138);
+  }
+  label('Tower', -142, -142, 'zone');
+  dealer(-142, -153.5, 0, 'Tower Dealer'); B.box('green', -142, 2.8, -152.7, 0.25, 0.25, 0.1, { solid: false });
+  atm(-131, -130.5, 0, 0.15, 'Tower ATM');
+  W.spawns.push([-142, -125]);
+  container(-160, -120, false, 2); car(-125, -116 + 2, 0.1); woodStack(-122, -160);
+
+  // ---------- block 0,1: Motel ----------
+  const motel = building({ x: -144, z: -76, w: 34, d: 10, h: 4, mat: 'plaster', door: 'e', doors2: ['w'], name: 'Motel', sign: { text: 'MOTEL', color: '#ff7ad8', mat: 'redsign' } });
+  for (let i = 0; i < 4; i++) B.box('plaster', -157 + i * 8, 0.27, -78, 0.3, 3.6, 5.6);
+  for (let i = 0; i < 4; i++) B.box('wood', -159 + i * 8, 0.27, -78.6, 2.2, 0.6, 3);
+  label('Motel', -144, -76, 'zone'); atm(-126, -70, -Math.PI / 2, 0.15, 'Motel ATM');
+  W.spawns.push([-144, -66]); scrap(-150, 0.27, -73);
+  car(-140, -58, 0); car(-150, -58, 0.05);
+
+  // ---------- block 4,0: Factory ----------
+  const fac = building({ x: 143, z: -140, w: 34, d: 26, h: 10, mat: 'metal', door: 'w', doors2: ['n'], doorW: 4, name: 'Factory', alarm: false, windows: false, sign: { text: 'FACTORY', color: '#ffe08a' } });
+  for (let i = 0; i < 3; i++) { B.box('rust', 135 + i * 8, 0.27, -142, 3, 3, 6); }
+  B.box('metal', 150, 4, -150, 10, 0.3, 4); for (let s = 0; s < 9; s++) B.box('concrete', 139.9 + s * 0.6, 0.27, -149, 0.6, 0.45 * (s + 1), 1.2);
+  safe(131, 0.27, -151, 0, false, fac); safe(151, 4.3, -151, 0, false, fac); safe(157, 0.27, -130, 0, false, fac);
+  crate(140, 0.27, -130, 'red'); scrap(152, 0.27, -134); scrap(130, 0.27, -133);
+  label('Factory', 143, -140, 'zone');
+  dealer(122, -119.5, Math.PI / 2, 'Factory Dealer'); B.box('green', 122, 2.8, -119.8, 0.25, 0.25, 0.1, { solid: false });
+  atm(124, -158, Math.PI / 2, 0.15, 'Factory ATM');
+  container(160, -110 - 10, true, 2);
+
+  // ---------- block 4,1: Workshop ----------
+  const ws = building({ x: 140, z: -80, w: 18, d: 14, h: 5, mat: 'brick2', door: 'w', doorW: 4, name: 'Workshop', alarm: true, sign: { text: 'WORKSHOP', color: '#ffcf6b' } });
+  counter(144, -84, 6, 1.2); reg(143, 1.32, -84, 0, ws); safe(147, 0.27, -74.5, Math.PI, false, ws);
+  B.box('metal', 136, 0.27, -76, 3, 1.1, 1.4); car(140, -80, 0, 'cargray');
+  scrap(135, 0.27, -86); label('Workshop', 140, -80, 'zone');
+  dealer(124, -64, Math.PI / 2, 'Workshop Dealer'); B.box('green', 123.3, 2.8, -64, 0.1, 0.25, 0.25, { solid: false });
+  atm(124, -96, Math.PI / 2, 0.15, 'Workshop ATM');
+
+  // ---------- block 3,0: Warehouse ----------
+  const wh = building({ x: 76, z: -142, w: 40, d: 26, h: 9, mat: 'rust', door: 'n', doorW: 5, name: 'Warehouse', windows: false, sign: { text: 'WAREHOUSE', color: '#dddddd' } });
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) B.box('wood', 62 + i * 8, 0.27, -138 + j * 7, 4, 2.4 + (i % 2) * 1.2, 2.4);
+  B.box('metal', 89, 4.6, -148, 12, 0.3, 4); for (let s = 0; s < 11; s++) B.box('concrete', 76.7 + s * 0.6, 0.27, -148, 0.6, 0.42 * (s + 1), 1.4);
+  safe(93, 4.9, -149, 0, false, wh); scrap(60, 0.27, -150); crate(91, 0.27, -132, 'red');
+  label('Warehouse', 76, -142, 'zone');
+  container(60, -120, true, 1);
+
+  // ---------- block 1,0: construction ----------
+  for (let i = 0; i < 4; i++) { B.box('concrete', -90 + i * 10, 0.15, -150, 0.8, 14, 0.8); B.box('concrete', -90 + i * 10, 0.15, -130, 0.8, 14, 0.8); }
+  B.box('concrete', -75, 7, -140, 32, 0.4, 22); for (let s = 0; s < 16; s++) B.box('wood', -95, 0.15, -127 - s * 0.7, 2, 0.44 * (s + 1), 0.7);
+  woodStack(-80, -125); woodStack(-70, -155); scrap(-70, 7.4, -145); scrap(-85, 0.15, -140); crate(-60, 7.4, -134, 'red');
+  label('Construction', -75, -140, 'poi'); W.airdrops.push([-75, -140]);
+
+  // ---------- block 1,1 & 0,2: apartments + alleys ----------
+  building({ x: -75, z: -78, w: 26, d: 16, h: 4, floors: 2, mat: 'brick', door: 'e', name: 'Apartments West' });
+  scrap(-80, 0.27, -78); container(-60, -55, true, 1);
+  building({ x: -145, z: -10, w: 26, d: 20, h: 4, floors: 2, mat: 'brick2', door: 'e', name: 'Row Houses' });
+  scrap(-150, 4.15, -12); car(-125, 10, Math.PI / 2);
+  label('Alleys', -145, -10, 'poi');
+
+  // ---------- block 1,2: Garages ----------
+  for (let i = 0; i < 5; i++) {
+    const gx = -95 + i * 11;
+    building({ x: gx, z: 16, w: 10, d: 12, h: 4, mat: 'concrete', door: 'n', doorW: 5, name: 'Garage ' + (i + 1), windows: false });
+    if (i % 2) car(gx, 17, Math.PI / 2, pick(['carred', 'carblue', 'cargray']));
+    else scrap(gx, 0.27, 19);
+  }
+  label('Garages', -75, 16, 'poi'); atm(-60, -2, 0, 0.15, 'Garages ATM');
+
+  // ---------- block 1,3: Gas station + blown-up tankers ----------
+  const gas = building({ x: -80, z: 72, w: 14, d: 10, h: 4.5, mat: 'plaster', door: 'n', name: 'Gas Station', alarm: true, sign: { text: 'GAS', color: '#ffe36b', mat: 'redsign' } });
+  counter(-80, 74, 6, 1.2); reg(-81, 1.32, 74, Math.PI, gas);
+  B.box('roof', -70, 5.2, 58, 20, 0.5, 10, { solid: false }); for (const [px, pz] of [[-78, 55], [-62, 55], [-78, 61], [-62, 61]]) B.box('metal', px, 0.15, pz, 0.5, 5.05, 0.5);
+  B.box('metal', -73, 0.15, 58, 1, 1.6, 0.8); B.box('metal', -67, 0.15, 58, 1, 1.6, 0.8);
+  for (const [tx, tz, r] of [[-96, 88, 0], [-92, 95, 0.3]]) { B.box('black', tx, 0.15, tz, 12, 3, 3); B.box('rust', tx + 7.5, 0.15, tz, 3, 3.3, 3); }
+  label('Gas Station', -75, 66, 'zone'); atm(-88.5, 66, Math.PI / 2, 0.15, 'Gas Station ATM');
+  car(-56, 80, 0.2); W.airdrops.push([-70, 90]);
+
+  // ---------- block 0,3 / 0,4: Vibin' ----------
+  const vib = building({ x: -142, z: 142, w: 24, d: 18, h: 6, mat: 'vibe', door: 'n', name: "Vibin'", sign: { text: "VIBIN'", color: '#ff5fc8', mat: 'neon' } });
+  B.box('neon', -142, 0.27, 148, 10, 0.6, 1); B.box('dark', -146, 0.27, 140, 2, 1, 2); B.box('dark', -138, 0.27, 140, 2, 1, 2);
+  scrap(-150, 0.27, 148); crate(-133, 0.27, 148, 'red');
+  label("Vibin'", -142, 142, 'zone'); atm(-129, 128, 0, 0.15, "Vibin' ATM");
+  W.teleports.push({ x: -142, y: 0.15, z: 122, to: 'sewer', tx: -142, tz: 112, label: "Climb down manhole (Vibin' sewer)" });
+  B.box('metal', -142, 0.15, 122, 1.4, 0.06, 1.4, { solid: false });
+  building({ x: -145, z: 70, w: 22, d: 18, h: 4, floors: 2, mat: 'brick', door: 'e', name: 'Tenements' });
+  scrap(-140, 0.27, 70); container(-160, 95, true, 2);
+
+  // ---------- block 2,3/2,4: market + south ----------
+  building({ x: 0, z: 72, w: 30, d: 16, h: 5, mat: 'brick2', door: 'n', name: 'Market Hall', sign: { text: 'MARKET', color: '#ffffff' } });
+  scrap(-8, 0.27, 72); scrap(8, 0.27, 74);
+  container(-15, 140, true, 2); container(10, 140, true, 1); container(-15, 155, true, 1); container(10, 155, true, 3); container(25, 148, false, 2);
+  label('Container Yard', 0, 148, 'poi'); W.airdrops.push([0, 125]);
+  scrap(-2, 0.15, 148); crate(3, 0.15, 132, 'red');
+
+  // ---------- block 3,4: Pizzeria (Illegal Pizza) ----------
+  const piz = building({ x: 70, z: 145, w: 18, d: 14, h: 5, mat: 'brick', door: 'n', name: 'Pizzeria', alarm: true, sign: { text: 'PIZZA', color: '#ffd36b', mat: 'redsign' } });
+  counter(70, 143, 8, 1.2); reg(68, 1.32, 143, Math.PI, piz); B.box('pizza', 74, 0.27, 148, 3, 1.6, 2);
+  label('Pizzeria', 70, 145, 'zone'); atm(60, 127.5, 0, 0.15, 'Pizzeria ATM');
+
+  // ---------- block 3,3: Armory 2 (red) behind buildings across from Pizzeria ----------
+  building({ x: 70, z: 95, w: 26, d: 10, h: 5, mat: 'brick2', door: 'w', name: 'Shops' });
+  const arm2 = building({ x: 92, z: 68, w: 14, d: 12, h: 5, mat: 'concrete', door: 'w', name: 'Armory 2', sign: { text: 'ARMORY', color: '#ff9f9f', mat: 'redsign' } });
+  counter(94, 68, 1.2, 8);
+  W.armories.push({ x: 96, y: 0.27, z: 68, rot: Math.PI / 2, name: 'Armory 2', color: 'red' });
+  label('Armory 2', 92, 68, 'armory');
+  W.teleports.push({ x: 100, y: 0.15, z: 82, to: 'sewer', tx: 92, tz: 92, label: 'Enter cave (Armory 2 sewer)' });
+  B.box('rock', 100, 0.15, 86, 6, 4, 3);
+
+  // ---------- block 4,3: Junkyard ----------
+  fence(118, 60, 170, 60); fence(118, 104, 170, 104); fence(118, 60, 118, 78); fence(118, 86, 118, 104);
+  for (let i = 0; i < 14; i++) car(rand(124, 166), rand(66, 88), randi(0, 3) * Math.PI / 2 + rand(-0.3, 0.3), pick(['rust', 'cargray', 'carred']));
+  B.box('rust', 160, 0.15, 66, 6, 5, 6);
+  const jb = building({ x: 142, z: 96, w: 10, d: 8, h: 4, mat: 'rust', door: 'n', name: 'Junkyard Office', alarm: false });
+  counter(142, 97, 4, 1); reg(141, 1.32, 97, Math.PI, jb);
+  safe(145.5, 0.27, 99, Math.PI, false, jb); safe(124, 0.15, 101, Math.PI, false, null); safe(164, 0.15, 101, Math.PI, true, null);
+  for (let i = 0; i < 6; i++) scrap(rand(124, 166), 0.15, rand(64, 92));
+  crate(130, 0.15, 64, 'red');
+  label('Junkyard', 144, 82, 'zone'); W.airdrops.push([144, 82]); atm(116, 82, Math.PI / 2, 0.15, 'Junkyard ATM');
+
+  // ---------- block 4,2 / 4,4 ----------
+  building({ x: 143, z: 10, w: 30, d: 18, h: 4, floors: 2, mat: 'brick', door: 'w', name: 'Offices' });
+  scrap(140, 0.27, 12); scrap(148, 4.15, 6);
+  container(130, 140, false, 2); container(150, 140, false, 1); container(160, 155, true, 2); woodStack(130, 160);
+  dealer(-22, -33, 0, 'Thrift Store Dealer'); B.box('green', -22, 2.8, -33.6, 0.25, 0.25, 0.1, { solid: false });
+
+  // street props
+  for (let i = 0; i < 22; i++) {
+    const r = pick(ROADS), t = rand(-160, 160), v = i % 2;
+    if (ROADS.some(rr => Math.abs(t - rr) < 10)) continue;
+    car(v ? r + rand(-3, 3) : t, v ? t : r + rand(-3, 3), (v ? Math.PI / 2 : 0) + rand(-0.4, 0.4));
+  }
+  for (const r of ROADS) for (let t = -150; t < 160; t += 40) { lampPost(r + 7, t); }
+
+  // ---------- SUBWAY (y -12) ----------
+  const dungeon = (zone, ox, oz, y, cs, rows, wallMat, floorMat, ceilH = 5) => {
+    const lv = { '.': 0, h: -0.5, t: -1.0, w: -0.5 };
+    const R = rows.length, C = rows[0].length;
+    for (let j = 0; j < R; j++) {
+      let i = 0;
+      while (i < C) {
+        const ch = rows[j][i];
+        if (ch === '#') { let k = i; while (k < C && rows[j][k] === '#') k++; B.box(wallMat, ox + (i + k) / 2 * cs, y - 1.5, oz + (j + 0.5) * cs, (k - i) * cs, ceilH + 1.5, cs, { zone }); i = k; continue; }
+        if (ch === 'g') { W.pits.push({ x0: ox + i * cs, z0: oz + j * cs, x1: ox + (i + 1) * cs, z1: oz + (j + 1) * cs, y }); i++; continue; }
+        const key = lv[ch] !== undefined ? ch : '.';
+        let k = i; while (k < C && rows[j][k] !== '#' && rows[j][k] !== 'g' && ((lv[rows[j][k]] !== undefined ? rows[j][k] : '.') === key)) k++;
+        const top = y + lv[key];
+        B.box(key === 't' ? 'rail' : key === 'w' ? 'sewer' : floorMat, ox + (i + k) / 2 * cs, y - 1.5, oz + (j + 0.5) * cs, (k - i) * cs, top - (y - 1.5), cs, { zone });
+        if (key === 'w') W.waters.push({ x0: ox + i * cs, z0: oz + j * cs, x1: ox + k * cs, z1: oz + (j + 1) * cs, y: y - 0.35 });
+        i = k;
+      }
+    }
+    B.box('dark', ox + C * cs / 2, y + ceilH, oz + R * cs / 2, C * cs, 1, R * cs, { zone });
+    W.under[zone] = { ox, oz, cs, rows: rows.slice() };
+    const cell = (i, j) => [ox + (i + 0.5) * cs, oz + (j + 0.5) * cs];
+    return { cell, rows };
+  };
+  const subRows = [
+    '##############################',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    'hhtttttttttttttttttttttttttthh',
+    'hhtttttttttttttttttttttttttthh',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '##############################',
+  ];
+  const sw = dungeon('subway', -45, 0, -12, 3, subRows, 'tile', 'concrete', 6);
+  B.box('dark', -46.5, -13.5, 15, 3, 7.5, 6, { zone: 'subway' }); B.box('dark', 46.5, -13.5, 15, 3, 7.5, 6, { zone: 'subway' });
+  W.trackZone = { x0: -45, x1: 45, z0: 12, z1: 18, y: -13 };
+  for (let i = 0; i < 6; i++) { B.box('lamp', -38 + i * 15, -6.4, 6, 3, 0.2, 0.6, { solid: false, zone: 'subway' }); B.box('lamp', -38 + i * 15, -6.4, 23, 3, 0.2, 0.6, { solid: false, zone: 'subway' }); }
+  for (let i = 0; i < 5; i++) B.box('concrete', -32 + i * 16, -12, 8, 1, 6, 1, { zone: 'subway' });
+  safe(-43, -12, 4, 0, false); safe(-10, -12, 4, 0, false); safe(26, -12, 25.8, Math.PI, false); safe(10, -12, 4, 0, true);
+  scrap(-20, -12, 4); scrap(30, -12, 25); crate(-25, -12, 26, 'red');
+  W.teleports.push({ x: -38, y: -12, z: 8, to: 'surface', tx: 11, tz: 18, label: 'Stairs up to Plaza' });
+  for (let s = 0; s < 6; s++) B.box('concrete', -38, -12, 3.3 + s * 0.5, 2.4, 0.3 * (s + 1), 0.5, { solid: false, zone: 'subway' });
+  W.teleports.push({ x: 41, y: -12, z: 26, to: 'vibe', tx: 2, tz: -5.5, label: 'Ride elevator down to Vibe Check', elevator: true });
+  B.box('metal', 41, -12, 26.6, 4, 5, 0.3, { solid: false, zone: 'subway' }); B.box('lamp', 41, -7.2, 26.3, 1.4, 0.2, 0.3, { solid: false, zone: 'subway' });
+  W.teleports.push({ x: -41, y: -12, z: 26, to: 'sewer', tx: 20, tz: 14, label: 'Ladder down to sewer' });
+  B.box('rail', -41, -12, 26.8, 1.2, 5, 0.2, { solid: false, zone: 'subway' });
+  atm(-28, 4, 0, -12, 'Subway ATM');
+  label('Subway platforms', 0, 13, 'zone');
+  W.spawnsSub = [[-30, 5], [30, 24]];
+
+  // ---------- SEWERS (y -26) ----------
+  const SC = 4, SO = -160, SN = 80;
+  const sg = Array.from({ length: SN }, () => Array(SN).fill('#'));
+  const toC = (v) => Math.floor((v - SO) / SC);
+  const carve = (x0, z0, x1, z1, ch = '.') => { for (let i = toC(Math.min(x0, x1)); i <= toC(Math.max(x0, x1)); i++) for (let j = toC(Math.min(z0, z1)); j <= toC(Math.max(z0, z1)); j++) if (i > 0 && j > 0 && i < SN - 1 && j < SN - 1) sg[j][i] = ch; };
+  const tunnel = (x0, z0, x1, z1) => {
+    if (z0 === z1) { carve(x0, z0 - 4, x1, z0 + 4); carve(x0, z0, x1, z0, 'w'); }
+    else { carve(x0 - 4, z0, x0 + 4, z1); carve(x0, z0, x0, z1, 'w'); }
+  };
+  tunnel(-142, 0, 100, 0); tunnel(0, -40, 0, 100); tunnel(-142, 0, -142, 112); tunnel(92, 0, 92, 92); tunnel(-142, 100, 0, 100); tunnel(20, 0, 20, 14);
+  carve(-12, -52, 12, -36); carve(-82, -14, -58, 14); carve(-150, 104, -134, 118); carve(84, 86, 100, 98); carve(14, 10, 26, 18);
+  for (let j = 0; j < SN; j++) for (let i = 0; i < SN; i++) if (sg[j][i] === 'w') { const n = [sg[j - 1]?.[i], sg[j + 1]?.[i], sg[j]?.[i - 1], sg[j]?.[i + 1]]; if (n.includes('#')) sg[j][i] = '.'; }
+  dungeon('sewer', SO, SO, -26, SC, sg.map(r => r.join('')), 'sewerwall', 'sewer', 5);
+  W.sewerBounds = { x0: SO, z0: SO, x1: SO + SN * SC, z1: SO + SN * SC };
+  safe(8, -26, -50, 0, true); label('Thrift Sewer Safe Room', 0, -44, 'zone');
+  safe(-78, -26, -12, 0, true); crate(-62, -26, 10, 'mystery'); label('?', -70, 0, 'zone');
+  safe(24, -26, 12, Math.PI, false);
+  scrap(-60, -26, 4); scrap(50, -26, 3); scrap(-140, -26, 60); scrap(2, -26, 60); scrap(-60, -26, 103);
+  W.rebelSpots.push([20, 16, 'Subway Sewer Entrance'], [92, 94, 'Armory 2 Cave Access'], [-6, -40, 'Thrift Sewer Safe Room'], [-74, 8, 'Giant Safe Room (?)'], [-142, 108, "Vibin' Sewer Section"]);
+  W.teleports.push({ x: 0, y: -26, z: -40, to: 'surface', tx: 10, tz: -31, label: 'Climb ladder to Thrift Store' });
+  W.teleports.push({ x: -142, y: -26, z: 112, to: 'surface', tx: -142, tz: 125, label: "Climb ladder to Vibin'" });
+  W.teleports.push({ x: 92, y: -26, z: 92, to: 'surface', tx: 104, tz: 82, label: 'Climb out to Armory 2' });
+  W.teleports.push({ x: 20, y: -26, z: 14, to: 'subway', tx: -38, tz: 24, label: 'Ladder up to Subway' });
+  for (const [lx, lz] of [[0, -40], [-142, 112], [92, 92], [20, 14]]) B.box('rail', lx, -26, lz - 1.8, 1.2, 5, 0.2, { solid: false, zone: 'sewer' });
+  for (let i = -140; i < 100; i += 20) B.box('lamp', i, -21.3, -3.5, 1.2, 0.2, 0.4, { solid: false, zone: 'sewer' });
+  W.spawnsSewer = [[-40, 3], [0, 50], [60, -3]];
+
+  // ---------- VIBE CHECK (y -50) ----------
+  const vRows = [
+    '######################',
+    '#....................#',
+    '#....................#',
+    '#..gggggggggggggggg..#',
+    '#..gggggggggggggggg..#',
+    '#..gggggggggggggggg..#',
+    '#..gggggggggggggggg..#',
+    '#....................#',
+    '#....................#',
+    '########...###########',
+    '#######.....##########',
+    '######.......#########',
+    '######.......#########',
+    '######################',
+  ];
+  dungeon('vibe', -33, -12, -50, 3, vRows, 'vibe', 'grate', 7);
+  B.box('rust', -33 + 33, -64, -12 + 15, 48, 0.5, 12, { solid: false, zone: 'vibe' });
+  for (let i = 0; i < 8; i++) B.box('metal', -21 + i * 6, -63.5, -3, 0.6, 10, 0.6, { solid: false, zone: 'vibe' });
+  for (let i = 0; i < 5; i++) B.box('neon', -27 + i * 12, -43.3, -10, 4, 0.2, 0.4, { solid: false, zone: 'vibe' });
+  safe(-28, -50, -8, 0, true); safe(28, -50, -8, 0, true); safe(0, -50, 23, Math.PI, true);
+  crate(-24, -50, 12, 'red'); crate(24, -50, 12, 'red'); crate(0, -50, 20, 'gold');
+  scrap(-28, -50, 12, true); scrap(28, -50, 12, true); scrap(-4, -50, 21, true); scrap(10, -50, -8);
+  W.teleports.push({ x: 2, y: -50, z: -7.5, to: 'subway', tx: 39, tz: 24, label: 'Elevator (must be called from above)', elevatorBottom: true });
+  B.box('metal', 2, -50, -8.85, 4, 6, 0.3, { solid: false, zone: 'vibe' });
+  B.box('dark', 0, -64, -3.25, 49, 12.5, 0.5, { zone: 'vibe' }); B.box('dark', 0, -64, 9.25, 49, 12.5, 0.5, { zone: 'vibe' });
+  B.box('dark', -24.25, -64, 3, 0.5, 12.5, 12, { zone: 'vibe' }); B.box('dark', 24.25, -64, 3, 0.5, 12.5, 12, { zone: 'vibe' });
+  label('Vibe Check', 0, 0, 'zone');
+  W.spawnsVibe = [[-26, 5], [26, 5]];
+
+  B.finish();
+  W.colliders = B.colliders;
+  return W;
+}
+
+export const MAP_MARKERS = {
+  zone: '#d9443a', armory: '#3a7bd9', dealer: '#555a60', atm: '#3ac46a', airdrop: '#e8c93a', poi: '#cfcfcf',
+};
