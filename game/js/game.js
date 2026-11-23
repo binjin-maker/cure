@@ -7,7 +7,7 @@ import * as UI from './ui.js';
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
 renderer.autoClear = false;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.6;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(80, 1, 0.08, 900);
@@ -15,22 +15,25 @@ camera.rotation.order = 'YXZ';
 const vmScene = new THREE.Scene(), vmCam = new THREE.PerspectiveCamera(58, 1, 0.01, 10);
 vmScene.add(new THREE.HemisphereLight(0xfff4e8, 0x4a4440, 1.6));
 const vmSun = new THREE.DirectionalLight(0xffe2b8, 1.6); vmSun.position.set(1, 2, 1); vmScene.add(vmSun);
-const hemi = new THREE.HemisphereLight(0xcfd8e6, 0x5a4e40, 1.05); scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff0dc, 2.5); scene.add(sun); scene.add(sun.target);
-const SUN_DIR = new THREE.Vector3(0.55, 0.62, 0.35).normalize();
+const hemi = new THREE.HemisphereLight(0xa8b4cc, 0x55504a, 1.25); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xb8c8ff, 1.5); scene.add(sun); scene.add(sun.target);
+const SUN_DIR = new THREE.Vector3(-0.45, 0.7, 0.4).normalize();
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 500 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
-const SKY = new THREE.Color(0xb9b2a4), UNDER = new THREE.Color(0x07080a);
-scene.background = SKY.clone(); scene.fog = new THREE.Fog(SKY.getHex(), 80, 460);
+const SKY = new THREE.Color(0x4a515e), UNDER = new THREE.Color(0x07080a);
+scene.background = SKY.clone(); scene.fog = new THREE.Fog(SKY.getHex(), 30, 230);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-  uniforms: { top: { value: new THREE.Color(0x5d7894) }, mid: { value: new THREE.Color(0xa9b4bd) }, hor: { value: SKY.clone() }, sunDir: { value: SUN_DIR } },
+  uniforms: { top: { value: new THREE.Color(0x1a1e26) }, mid: { value: new THREE.Color(0x343a46) }, hor: { value: SKY.clone() }, sunDir: { value: SUN_DIR } },
   vertexShader: 'varying vec3 vd; void main(){ vd = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = vec4(p.xy, p.w * 0.9999, p.w); }',
-  fragmentShader: 'uniform vec3 top; uniform vec3 mid; uniform vec3 hor; uniform vec3 sunDir; varying vec3 vd; void main(){ float h = vd.y; vec3 c = mix(hor, mid, smoothstep(-0.02, 0.18, h)); c = mix(c, top, smoothstep(0.18, 0.75, h)); float sd = max(dot(normalize(vd), sunDir), 0.0); c += vec3(1.0,0.85,0.6) * (pow(sd, 400.0) * 3.0 + pow(sd, 12.0) * 0.25); gl_FragColor = vec4(c, 1.0); }',
+  fragmentShader: 'uniform vec3 top; uniform vec3 mid; uniform vec3 hor; uniform vec3 sunDir; varying vec3 vd; void main(){ float h = vd.y; vec3 c = mix(hor, mid, smoothstep(-0.02, 0.18, h)); c = mix(c, top, smoothstep(0.18, 0.75, h)); float sd = max(dot(normalize(vd), sunDir), 0.0); c += vec3(0.85,0.9,1.0) * (step(0.9993, sd) * 1.6 + pow(sd, 30.0) * 0.12); float st = fract(sin(dot(floor(vd.xz / max(vd.y, 0.05) * 90.0), vec2(12.9898, 78.233))) * 43758.5453); c += vec3(0.7) * step(0.9975, st) * smoothstep(0.15, 0.5, h); gl_FragColor = vec4(c, 1.0); }',
 });
 const sky = new THREE.Mesh(new THREE.SphereGeometry(800, 32, 16), skyMat); sky.frustumCulled = false; sky.renderOrder = -1; scene.add(sky);
-const pLight = new THREE.PointLight(0xffe8c8, 0, 22, 1.4); scene.add(pLight);
+const pLight = new THREE.PointLight(0xffe8c8, 0, 16, 1.6); scene.add(pLight);
+const POOL = 8, pool = [];
+for (let i = 0; i < POOL; i++) { const l = new THREE.PointLight(0xffc27a, 0, 26, 1.5); scene.add(l); pool.push(l); }
+const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,230,180,0.5)'); g.addColorStop(1, 'rgba(255,200,120,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
 const vibeL1 = new THREE.PointLight(0xff4fb0, 0, 40, 1.2); vibeL1.position.set(-14, -45, 0); scene.add(vibeL1);
 const vibeL2 = new THREE.PointLight(0x7a5cff, 0, 40, 1.2); vibeL2.position.set(14, -45, 12); scene.add(vibeL2);
 
@@ -54,7 +57,7 @@ const navs = {
 };
 
 // ---------- save ----------
-const DEFAULT_SETTINGS = { sens: 1, adsSens: 0.7, fov: 80, vol: 0.6, quality: 1, view: 420, fps: false, invertY: false, xhair: '#ffffff', names: true, bob: true };
+const DEFAULT_SETTINGS = { lights: 8, tp: false, sens: 1, adsSens: 0.7, fov: 80, vol: 0.6, quality: 1, view: 420, fps: false, invertY: false, xhair: '#ffffff', names: true, bob: true };
 function freshSave() {
   return { bank: START_BANK, level: 1, xp: 0, unlocked: [], passes: ['group'], codes: [], allowanceT: 0, settings: { ...DEFAULT_SETTINGS }, stats: { kills: 0, deaths: 0, downs: 0, safes: 0, registers: 0, earned: 0 }, session: null };
 }
@@ -437,7 +440,7 @@ function buildVM() {
     if (isGun(vmItem)) { const l = arm(-0.06, -0.2); l.position.set(-0.05, -0.09, -0.22); l.rotation.y = 0.35; vm.add(l); }
     if (isMeleeish(vmItem)) w.rotation.x = 0.9;
   }
-  vm.userData.base = isGun(vmItem) ? new THREE.Vector3(0.2, -0.2, -0.52) : vm.userData.l ? new THREE.Vector3(0, -0.27, -0.4) : new THREE.Vector3(0.22, -0.24, -0.45);
+  vm.userData.base = isGun(vmItem) ? (['rifle', 'sniper', 'shotgun', 'launcher'].includes(vmItem.type) ? new THREE.Vector3(0.21, -0.2, -0.72) : vmItem.type === 'smg' ? new THREE.Vector3(0.2, -0.2, -0.6) : new THREE.Vector3(0.19, -0.19, -0.5)) : vm.userData.l ? new THREE.Vector3(0, -0.27, -0.4) : new THREE.Vector3(0.22, -0.24, -0.45);
   vm.position.copy(vm.userData.base);
 }
 
@@ -1021,6 +1024,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyN' && P.armor.eyes) { P.thermal = !P.thermal; sfx.click(); }
   if (e.code === 'KeyQ' && P.inv[P.eq]?.id !== 'fists') G.dropInv(P.eq);
   if (e.code === 'KeyV') G.equip(0);
+  if (e.code === 'KeyT') { G.save.settings.tp = !G.save.settings.tp; sfx.click(); }
   if (e.code === 'F9' && G.update.ready) { save(); location.reload(); }
   if (e.code === 'Space' && P.downed) { }
 });
@@ -1084,7 +1088,8 @@ function playerAttack(dt) {
       const d = aimDir();
       const sp = (it.pellets > 1 ? 0.012 : it.spread) * (P.ads > 0.5 ? 0.35 : 1) * (P.crouch ? 0.8 : 1) * (1 + Math.hypot(P.vel.x, P.vel.z) * 0.08) + P.recoilP * 0.25;
       d.x += rand(-sp, sp); d.y += rand(-sp, sp); d.z += rand(-sp, sp); d.normalize();
-      fireWeapon(P, camera.position.clone(), d, it);
+      const [so, sd] = shotFrom(); if (sd) { sd.x += d.x - aimDir().x; sd.y += d.y - aimDir().y; sd.z += d.z - aimDir().z; sd.normalize(); }
+      fireWeapon(P, so, sd || d, it);
       const kick = it.recoil * (P.ads > 0.5 ? 0.7 : 1) * (P.crouch ? 0.75 : 1);
       P.pitch = clamp(P.pitch + kick, -1.55, 1.55); P.yaw += rand(-kick, kick) * 0.4; P.recoilP += kick;
       vmKick = 0.06 + kick;
@@ -1111,7 +1116,7 @@ function playerAttack(dt) {
         return;
       }
       const d = aimDir(); d.y += 0.15; d.normalize();
-      launch(P, camera.position.clone(), d, it, true);
+      launch(P, viewOrigin(), d, it, true);
       const pr = G.projectiles[G.projectiles.length - 1];
       if (it.remote) { P.c4s.push(pr); UI.toast('C4 placed — select C4 and click again to detonate.', 'good'); }
       e.count = (e.count || 1) - 1; if (e.count <= 0 && !it.remote) { P.inv.splice(P.eq, 1); fixEquip(); buildVM(); }
@@ -1123,7 +1128,7 @@ function playerAttack(dt) {
   }
 }
 function meleeHit(it) {
-  const o = camera.position.clone(), d = aimDir(), range = it.range || 2.6;
+  const o = viewOrigin(), d = aimDir(), range = it.range || 2.6;
   const w = phys.ray(o, d, range);
   let best = null, bt = 1e9;
   for (const b of G.bots) {
@@ -1246,7 +1251,7 @@ function reviveLogic(dt, it) {
 }
 let promptObj = null;
 function interactLogic(dt) {
-  const o = camera.position, d = aimDir();
+  const o = viewOrigin(), d = aimDir();
   let best = null, bs = -1;
   for (const ob of G.inter) {
     const dx = ob.x - o.x, dy = ob.y - o.y, dz = ob.z - o.z, dist = Math.hypot(dx, dy, dz);
@@ -1336,6 +1341,59 @@ function updateWorld(dt) {
   }
 }
 
+// ---------- lights ----------
+for (const L of W.lights) {
+  if (!L.lamp && !L.inside && L.zone === 'surface') continue;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: L.c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }));
+  sp.position.set(L.x, L.y + (L.lamp ? 0.3 : 0.4), L.z); const k = L.small ? 1.2 : L.inside ? 1.6 : 2.6; sp.scale.set(k, k, 1); scene.add(sp);
+}
+let poolT = 0;
+function updateLightPool(zone) {
+  poolT -= 1; if (poolT > 0) return; poolT = 10;
+  const c = camera.position;
+  const cand = W.lights.filter(l => l.zone === zone).map(l => [l, (l.x - c.x) ** 2 + (l.z - c.z) ** 2 + (l.y - c.y) ** 2]).sort((a, b) => a[1] - b[1]);
+  const n = G.save?.settings.lights ?? 8;
+  for (let i = 0; i < POOL; i++) {
+    const L = cand[i]?.[0], l = pool[i];
+    l.visible = i < n;
+    if (!L) { l.intensity = 0; continue; }
+    l.position.set(L.x, L.y, L.z); l.color.setHex(L.c); l.intensity = L.i; l.distance = L.small ? 12 : L.inside ? 16 : 26;
+  }
+}
+
+// ---------- third person ----------
+const tpModel = makeCharacter(0x4a5566, 0x2a2c30, 0xe8b890, 0x1a1a1a); tpModel.visible = false; scene.add(tpModel);
+let tpHandItem = null;
+G.thirdPerson = () => !!G.save?.settings.tp;
+function viewOrigin() { return G.thirdPerson() ? eyeOf(P) : camera.position.clone(); }
+function poseTP(dt) {
+  const tp = G.thirdPerson() && G.state === 'play' && P.alive;
+  tpModel.visible = tp;
+  if (!tp) return;
+  const it = vmItem || ITEM.fists;
+  if (tpHandItem !== it) { tpHandItem = it; const h = tpModel.userData.hand; h.clear(); const w = weaponModel(it); w.rotation.x = -Math.PI / 2; h.add(w); }
+  const fake = { model: tpModel, pos: P.pos, yaw: P.yaw, vel: P.vel, downed: P.downed, dead: false, walkPh: bob * 0.6, state: isGun(it) ? 'fight' : 'roam', anim: vmSwing > 0 ? 0.2 : 0, using: isGun(it) ? 'gun' : 'melee', gun: isGun(it) ? P.inv[P.eq] : null, melee: it.id };
+  poseBot(fake, dt);
+  tpModel.scale.y = P.crouch ? 0.72 : 1;
+  if (isGun(it)) tpModel.userData.armR.rotation.x = Math.PI / 2 + P.pitch * 0.8;
+}
+function placeTPCamera() {
+  const eye = eyeOf(P), d = aimDir();
+  const right = new THREE.Vector3(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
+  const want = eye.clone().addScaledVector(d, -(P.ads > 0.5 ? 2.2 : 3.8)).addScaledVector(right, 1.4).add(new THREE.Vector3(0, 0.35, 0));
+  const dir = want.clone().sub(eye); const L = dir.length(); dir.normalize();
+  const hit = phys.ray(eye, dir, L);
+  camera.position.copy(eye).addScaledVector(dir, Math.max(0.3, hit.t - 0.3));
+}
+function shotFrom() {
+  if (!G.thirdPerson()) return [camera.position.clone(), null];
+  const d = aimDir(), o = camera.position.clone();
+  const w = phys.ray(o, d, 300), c = rayChar(o, d, w.t, P, P.zone);
+  const target = o.clone().addScaledVector(d, c.hit ? c.t : w.t);
+  const eye = eyeOf(P); eye.y -= 0.15;
+  return [eye, target.sub(eye).normalize()];
+}
+
 // ---------- main ----------
 function resize() {
   const q = G.save?.settings.quality ?? 1;
@@ -1411,11 +1469,11 @@ function frame(now) {
   const zone = G.state === 'play' ? P.zone : 'surface';
   const under = zone !== 'surface';
   scene.background.lerp(under ? UNDER : SKY, 0.2); scene.fog.color.copy(zone === 'sewer' ? new THREE.Color(0x0c120c) : zone === 'vibe' ? new THREE.Color(0x120a14) : scene.background);
-  scene.fog.near = under ? 10 : 80; scene.fog.far = under ? (zone === 'sewer' ? 60 : 80) : G.save.settings.view;
+  scene.fog.near = under ? 10 : 30; scene.fog.far = under ? (zone === 'sewer' ? 60 : 80) : Math.min(G.save.settings.view, 230);
   sky.visible = !under;
-  hemi.intensity = under ? (zone === 'vibe' ? 1.1 : 0.8) : 1.05; hemi.color.setHex(under ? 0xb0b8c8 : 0xcfd8e6);
-  sun.intensity = under ? 0 : 2.5; sun.castShadow = !under;
-  pLight.intensity = under ? 28 : 0; vibeL1.intensity = vibeL2.intensity = zone === 'vibe' ? 160 : 0;
+  hemi.intensity = under ? (zone === 'vibe' ? 0.9 : 0.75) : 1.25; hemi.color.setHex(under ? 0xb0b8c8 : 0xa8b4cc);
+  sun.intensity = under ? 0 : 1.5; sun.castShadow = !under;
+  pLight.intensity = under ? 10 : 2.5; updateLightPool(zone); vibeL1.intensity = vibeL2.intensity = zone === 'vibe' ? 160 : 0;
   {
     const c = camera.position, texel = 180 / 2048;
     const fx = Math.round(c.x / texel) * texel, fz = Math.round(c.z / texel) * texel;
@@ -1431,12 +1489,14 @@ function frame(now) {
     camera.position.set(P.pos.x, P.pos.y + ey + by, P.pos.z);
     shake *= Math.pow(0.05, dt);
     camera.rotation.set(P.pitch + rand(-shake, shake) * 0.1, P.yaw + rand(-shake, shake) * 0.1, 0);
+    if (G.thirdPerson()) placeTPCamera();
+    poseTP(dt);
     const it = vmItem || ITEM.fists;
     const fov = G.save.settings.fov * (1 - P.ads * (it.scope ? 0.72 : 0.22));
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
     // viewmodel
     const base = vm.userData.base || new THREE.Vector3(0.2, -0.2, -0.42);
-    const adsPos = new THREE.Vector3(0, -0.115, -0.3);
+    const adsPos = new THREE.Vector3(0, -0.115, ['rifle', 'sniper', 'shotgun', 'launcher'].includes(it.type) ? -0.5 : -0.34);
     vmKick *= Math.pow(0.001, dt);
     vm.position.lerpVectors(base, adsPos, P.ads);
     vm.position.y += Math.sin(bob) * 0.012 * (1 - P.ads) - (P.reloadT > 0 ? 0.15 : 0) - (P.using ? 0.1 : 0);
@@ -1449,7 +1509,7 @@ function frame(now) {
       if (it.id === 'fists' || it.id === 'knuckledusters') { const side = Math.floor(G.time * 3) % 2 ? vm.userData.l : vm.userData.r; if (side) side.position.z = -s * 0.35; }
       else { vm.rotation.x -= s * 1.2; vm.rotation.y = s * 0.6; vm.position.x -= s * 0.15; }
     } else if (vm.userData.l) { vm.userData.l.position.z = 0; vm.userData.r.position.z = 0; }
-    vm.visible = !(it.scope && P.ads > 0.7) && P.alive && !P.downed;
+    vm.visible = !(it.scope && P.ads > 0.7) && P.alive && !P.downed && !G.thirdPerson();
     UI.scope(it.scope && P.ads > 0.7);
     UI.hud(P, G, { flash: P.flashT, gas: P.gasT, prompt: promptObj });
     UI.tags(G.bots, camera);
@@ -1459,7 +1519,7 @@ function frame(now) {
     camera.position.set(Math.sin(menuAng) * 120, 55, Math.cos(menuAng) * 120);
     camera.lookAt(0, 0, 0);
     camera.fov = 60; camera.updateProjectionMatrix();
-    vm.visible = false;
+    vm.visible = false; tpModel.visible = false;
   }
   renderer.clear();
   renderer.render(scene, camera);

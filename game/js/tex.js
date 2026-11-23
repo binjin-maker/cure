@@ -115,5 +115,5 @@ export const TEXMAP = {
   plaster: ['plaster', 4], metal: ['corrugated', 3], rust: ['rust', 4], wood: ['wood', 2], roof: ['roof', 6], wall: ['concrete', 6], rock: ['rock', 14],
   container: ['corrugated', 2.5], container2: ['corrugated', 2.5], container3: ['corrugated', 2.5], sewer: ['sewer', 4], sewerwall: ['brick', 2.5], tile: ['tile', 4],
   rail: ['wood', 2], grate: ['grate', 2], vibe: ['concrete', 4], fence: ['chain', 2], counter: ['wood', 1.5], trim: ['metal', 2], dark: ['concrete', 5],
-  carred: ['panel', 2], carblue: ['panel', 2], cargray: ['panel', 2], black: ['rust', 3], pizza: ['wood', 2],
+  carred: ['panel', 2], dumpster: ['corrugated', 1.5], trash: ['rust', 1], carblue: ['panel', 2], cargray: ['panel', 2], black: ['rust', 3], pizza: ['wood', 2],
 };

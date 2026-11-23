@@ -82,8 +82,8 @@ const VIEWS = {
     const ck = (k, label) => `<span>${label}</span><span><input type="checkbox" data-c="${k}" ${s[k] ? 'checked' : ''} style="pointer-events:auto"></span>`;
     const b = panel('SETTINGS', `<div class="kv">
       ${sl('sens', 'Mouse sensitivity', 0.1, 4, 0.05)}${sl('adsSens', 'Aim sensitivity', 0.1, 2, 0.05)}${sl('fov', 'Field of view', 60, 110, 1)}
-      ${sl('vol', 'Master volume', 0, 1, 0.05)}${sl('quality', 'Render scale', 0.4, 1, 0.05)}${sl('view', 'View distance', 150, 700, 10)}
-      ${ck('invertY', 'Invert mouse Y')}${ck('fps', 'Show FPS')}${ck('names', 'Show name tags')}${ck('bob', 'View bobbing')}
+      ${sl('vol', 'Master volume', 0, 1, 0.05)}${sl('lights', 'Dynamic lights (lower = faster)', 0, 8, 1)}${sl('quality', 'Render scale', 0.4, 1, 0.05)}${sl('view', 'View distance', 150, 700, 10)}
+      ${ck('tp', 'Third-person camera (T)')}${ck('invertY', 'Invert mouse Y')}${ck('fps', 'Show FPS')}${ck('names', 'Show name tags')}${ck('bob', 'View bobbing')}
       <span>Crosshair color</span><span><input type="text" data-t="xhair" value="${s.xhair}" style="width:110px"></span></div>
       <div class="note" style="margin-top:12px">Settings save automatically.</div>`);
     b.querySelectorAll('input[type=range]').forEach(i => i.addEventListener('input', () => { s[i.dataset.k] = +i.value; b.querySelector(`[data-v=${i.dataset.k}]`).textContent = i.value; G.applySettings(); }));
@@ -92,7 +92,7 @@ const VIEWS = {
     b.addEventListener('change', () => G.saveNow());
   },
   controls() {
-    const rows = [['WASD', 'Move'], ['Shift', 'Sprint (uses stamina)'], ['C / Ctrl', 'Crouch'], ['Space', 'Jump'], ['Mouse', 'Look'], ['LMB', 'Shoot / swing / throw / use'], ['RMB', 'Aim down sights'], ['R', 'Reload · hold R with fists/med to revive downed'], ['E', 'Interact (ATM, dealers, safes, scrap, doors)'], ['F', 'Finish a downed enemy with a melee (+30 HP)'], ['1–0 / Wheel', 'Hotbar'], ['V', 'Fists'], ['Q', 'Drop held item'], ['G', 'Inventory'], ['M', 'Map'], ['Tab (hold)', 'Player list & bounties'], ['N', 'Toggle thermal goggles'], ['F9', 'Apply downloaded update now'], ['Esc', 'Pause']];
+    const rows = [['WASD', 'Move'], ['Shift', 'Sprint (uses stamina)'], ['C / Ctrl', 'Crouch'], ['Space', 'Jump'], ['Mouse', 'Look'], ['LMB', 'Shoot / swing / throw / use'], ['RMB', 'Aim down sights'], ['R', 'Reload · hold R with fists/med to revive downed'], ['E', 'Interact (ATM, dealers, safes, scrap, doors)'], ['F', 'Finish a downed enemy with a melee (+30 HP)'], ['1–0 / Wheel', 'Hotbar'], ['V', 'Fists'], ['T', 'Toggle first / third person'], ['Q', 'Drop held item'], ['G', 'Inventory'], ['M', 'Map'], ['Tab (hold)', 'Player list & bounties'], ['N', 'Toggle thermal goggles'], ['F9', 'Apply downloaded update now'], ['Esc', 'Pause']];
     panel('CONTROLS', `<table class="t">${rows.map(r => `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td></tr>`).join('')}</table>`);
   },
   guide() {

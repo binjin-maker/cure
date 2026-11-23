@@ -8,7 +8,10 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0d;font-family:"Segoe UI",Tahoma,sans-serif;color:#e8e6e1;user-select:none}
-#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;filter:saturate(.68) contrast(1.14) sepia(.14) brightness(1.04)}
+#grain{position:fixed;inset:-50%;width:200%;height:200%;pointer-events:none;z-index:4;opacity:.07;mix-blend-mode:overlay;animation:gr .5s steps(4) infinite}
+@keyframes gr{0%{transform:translate(0,0)}25%{transform:translate(-3%,2%)}50%{transform:translate(2%,-3%)}75%{transform:translate(-2%,-1%)}}
+#vig2{position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%)}
 .hide{display:none!important}
 #loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0b0c0d;z-index:100;gap:14px}
 #loading b{font:900 64px Impact,"Arial Black",sans-serif;letter-spacing:8px;color:#d33}
@@ -102,7 +105,7 @@ input[type=range]{pointer-events:auto;width:220px}
 .big{font:900 28px Impact,"Arial Black",sans-serif;color:#7dff9a}
 .note{font-size:12px;opacity:.6;line-height:1.5}
 table.t{border-collapse:collapse;width:100%;font-size:13px}table.t td,table.t th{padding:4px 8px;border-bottom:1px solid #ffffff10;text-align:left}table.t th{opacity:.6}
-#mapc{background:#1a1b1d;border:1px solid #fff2;display:block}
+#mapc{background:#1a1b1d;border:1px solid #fff2;display:block;height:min(760px,calc(100vh - 240px));width:auto}
 .legend{display:flex;gap:14px;font-size:12px;flex-wrap:wrap;margin-top:8px}.legend i{display:inline-block;width:10px;height:10px;margin-right:5px;vertical-align:middle}
 #lp{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:25;background:#121316f5;border:1px solid #fff3;padding:20px;width:460px;text-align:center}
 #lp .track{position:relative;height:36px;background:#0b0c0e;border:1px solid #fff2;margin:10px 0}
@@ -113,7 +116,7 @@ table.t{border-collapse:collapse;width:100%;font-size:13px}table.t td,table.t th
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<canvas id="c"></canvas><div id="grain"></div><div id="vig2"></div>
 <div id="loading"><b>CURE</b><span>ENTERING SECTOR-07...</span></div>
 <div id="hud" class="hide">
   <div id="vig"></div><div id="gas"></div><div id="flash"></div><div id="scope" class="hide"></div>
@@ -145,6 +148,7 @@ table.t{border-collapse:collapse;width:100%;font-size:13px}table.t td,table.t th
 <div id="menu" class="hide"></div>
 <div id="lp" class="hide"></div>
 <div id="fade"></div>
+<script>{const c=document.createElement("canvas");c.width=c.height=256;const x=c.getContext("2d"),d=x.createImageData(256,256);for(let i=0;i<d.data.length;i+=4){const v=Math.random()*255;d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=255}x.putImageData(d,0,0);document.getElementById("grain").style.background="url("+c.toDataURL()+")"}</script>
 <script type="module" src="./js/game.js"></script>
 </body>
 </html>
