@@ -55,7 +55,7 @@ function rectsMinus(r, h) {
   return out;
 }
 
-export function buildWorld(scene) {
+export function buildWorld(scene, KIT) {
   const B = new Builder(scene);
   const W = {
     atms: [], dealers: [], armories: [], rebelSpots: [], registers: [], safes: [], scrap: [], crates: [],
@@ -83,6 +83,60 @@ export function buildWorld(scene) {
   const blockMat = {};
   blockMat['4,3'] = 'dirt';
   B.mat('walk', 0x8e8f8e);
+  const I = KIT.I, KM = KIT.mats, ksize = KIT.size;
+  const variants = new Map();
+  const tintMat = (m, tint) => { const k = m.uuid + tint; if (!variants.has(k)) { const c = m.clone(); c.color = c.color.clone().multiply(new THREE.Color(tint)); variants.set(k, c); } return variants.get(k); };
+  const kmat = (name, tint, ts) => { const m = tint ? tintMat(KM[name], tint) : KM[name]; return m; };
+  for (const [k, mn, t, ts] of [['road', 'MI_Asphalt', 0xd0d0d0, 7], ['walk', 'MI_Concrete', 0xe8e8e8, 3], ['lot', 'MI_Asphalt', 0xb8b8b8, 8], ['floorK', 'MI_InteriorFloor', 0xffffff, 3], ['slabK', 'MI_Concrete', 0xc8c8c8, 4], ['roofK', 'MI_Concrete', 0x8a8a8a, 6], ['concrete', 'MI_Concrete', 0xd8d8d8, 3], ['brickK', 'MI_RedBrick', 0xffffff, 2], ['trimK', 'MI_Trim', 0xffffff, 2]]) {
+    B.buckets.delete(k); B.mat(k, 0xffffff, { material: kmat(mn, t), ts });
+  }
+  const placeK = (name, x, y, z, ry = 0, s = 1, sy) => I.add(name, x, y, z, ry, s, sy);
+  const ROT = { n: 0, s: Math.PI, w: Math.PI / 2, e: -Math.PI / 2 };
+  const fillPlain = (style) => style === 'trim' ? [['trim-plain-3', 3], ['brick-plain-1', 1]] : style === 'metal' ? [['metal-plain-3', 3], ['metal-plain-1', 1]] : [['brick-plain-4', 4], ['brick-plain-3', 3], ['brick-plain-1', 1]];
+  // kit facade on rect [x0..x1, z0..z1]; floors = array of floor heights; doors = { side: alongCoord }
+  const kitShell = (o) => {
+    const { x0, z0, x1, z1, y0 = 0.15, floors, style = 'brick', ground = 'brick', doors = {}, interior = false, cornice = 'brick', closedDoors = false, pattern } = o;
+    const top = y0 + floors.reduce((a, b) => a + b, 0);
+    const upper = pattern || pick([['brick-window-trim'], ['brick-window-square-single'], ['brick-window-trim-single'], ['brick-window-trim', 'brick-window-trim-single'], ['brick-window-square-single', 'brick-plain-3']]);
+    const upperTrim = ['trim-window', 'trim-window', 'trim-plain-3'];
+    for (const side of ['n', 's', 'w', 'e']) {
+      const horiz = side === 'n' || side === 's', len = horiz ? x1 - x0 : z1 - z0, slots = Math.round(len / 2);
+      const ry = ROT[side];
+      const doorAt = doors[side];
+      for (let i = 0; i < slots; i++) {
+        const along = (horiz ? x0 : z0) + 1 + 2 * i;
+        const px = horiz ? along : side === 'w' ? x0 : x1, pz = horiz ? (side === 'n' ? z0 : z1) : along;
+        const isDoor = doorAt !== undefined && Math.abs(along - doorAt) < 1.01;
+        let y = y0;
+        floors.forEach((fh, f) => {
+          let main;
+          if (f === 0) {
+            if (isDoor) main = ground === 'metal' ? 'doorframe-metal-single' : 'doorframe-trim';
+            else if (ground === 'metal') main = Math.random() < 0.78 ? 'metal-firstfloor-window' : 'metal-firstfloor-wall';
+            else if (ground === 'trim') main = Math.random() < 0.7 ? 'trim-firstfloor-window-001' : 'trim-firstfloor-wall';
+            else main = pick(['brick-window-square-single', 'brick-plain-3', 'brick-window-trim-single']);
+          } else main = style === 'trim' ? pick(upperTrim) : style === 'metal' ? pick(['metal-window-half', 'metal-plain-3', 'metal-fullwindow']) : upper[(i + f) % upper.length];
+          placeK(main, px, y, pz, ry);
+          if (isDoor && f === 0 && closedDoors) placeK(ground === 'metal' ? 'door-2' : 'door-1', px + (horiz ? 0.5 : 0), y, pz, ry);
+          let rest = fh - 3, yy = y + 3;
+          const fp = fillPlain(f === 0 && ground !== 'brick' ? ground : style);
+          while (rest > 0.05) { const [pn, ph] = fp.find(([, h]) => h <= rest + 0.05) || fp[fp.length - 1]; const sc = ph > rest ? rest / ph : 1; placeK(pn, px, yy, pz, ry, 1, sc); yy += ph * sc; rest -= ph * sc; }
+          y += fh;
+        });
+        if (cornice) placeK(cornice === 'trim' ? 'cornice-trim-center' : cornice === 'metal' ? 'cornice-metal-center' : 'cornice-brick-center', px, top, pz, ry);
+        if (interior) {
+          let yy = y0, rest = top - y0;
+          if (isDoor) { yy += 3; rest -= 3; }
+          while (rest > 0.05) { const ph = rest >= 4 ? 4 : rest >= 3 ? 3 : 1, sc = ph > rest ? rest / ph : 1; placeK('brick-interiorwall-' + ph, px, yy, pz, ry + Math.PI, 1, sc); yy += ph * sc; rest -= ph * sc; }
+        }
+      }
+    }
+    for (const [cx, cz, r] of [[x0, z0, Math.PI], [x1, z0, Math.PI / 2], [x1, z1, 0], [x0, z1, -Math.PI / 2]]) {
+      let yy = y0, rest = top - y0 + (cornice ? 1 : 0);
+      while (rest > 0.05) { const sc = Math.min(1, rest / 3); placeK('brick-cornercolumn-center', cx, yy, cz, r, 1, sc); yy += 3 * sc; rest -= 3 * sc; }
+    }
+    return top;
+  };
   const SW = 3.5;
   BLK.forEach(([x0, x1], i) => BLK.forEach(([z0, z1], j) => {
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, w = x1 - x0, d = z1 - z0;
@@ -90,8 +144,14 @@ export function buildWorld(scene) {
     B.box('walk', x0 + SW / 2, -1, cz, SW, 1.15, d - 2 * SW); B.box('walk', x1 - SW / 2, -1, cz, SW, 1.15, d - 2 * SW);
     B.box(blockMat[i + ',' + j] || 'lot', cx, -1, cz, w - 2 * SW, 1.15, d - 2 * SW);
   }));
-  for (const rx of ROADS) for (let z = -EDGE + 4; z < EDGE; z += 8) if (!ROADS.some(r => Math.abs(z - r) < 7)) B.box('line', rx, 0, z, 0.25, 0.03, 3, { solid: false });
-  for (const rz of ROADS) for (let x = -EDGE + 4; x < EDGE; x += 8) if (!ROADS.some(r => Math.abs(x - r) < 7)) B.box('line', x, 0, rz, 3, 0.03, 0.25, { solid: false });
+  for (const r of ROADS) for (let t = -EDGE + 3; t < EDGE - 3; t += 12) {
+    if (ROADS.some(rr => Math.abs(t - rr) < 12)) continue;
+    I.add('decal-brokenline-straight', r, 0.155, t, Math.PI / 2); I.add('decal-brokenline-straight', t, 0.155, r, 0);
+  }
+  for (const rx of ROADS) for (const rz of ROADS) for (const [dx, dz, ry] of [[0, -9, Math.PI / 2], [0, 9, Math.PI / 2], [-9, 0, 0], [9, 0, 0]]) {
+    I.add('decal-crosswalk', rx + dx, 0.155, rz + dz, ry);
+    if (Math.random() < 0.5) I.add('decal-stop', rx + dx * 1.45 + (dz ? 3 : 0), 0.155, rz + dz * 1.45 + (dx ? -3 : 0), ry + Math.PI / 2);
+  }
 
   // ---------- perimeter: brutalist wall + rock ----------
   const H = 30;
@@ -144,61 +204,47 @@ export function buildWorld(scene) {
     }
   };
   const building = (o) => {
-    const { x, z, w, d, h = 5, floors = 1, mat = 'brick', door = 's', doorW = 2.6, name, alarm = false, roofMat = 'roof', floorMat = 'tile', y0 = 0.15, sign, windows = true, doors2 } = o;
-    const fh = h, total = fh * floors, t = 0.4;
+    const { x, z, w, d, h = 5, floors = 1, door = 's', name, alarm = false, y0 = 0.15, sign, doors2, style = 'brick', ground = 'brick' } = o;
+    const fh = h, total = fh * floors, t = 0.2, DG = 1.6;
     const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
     const bld = { name, x, z, w, d, alarm, x0, x1, z0, z1, floors, fh, y0 };
     W.buildings.push(bld);
     const doorsOn = new Set([door, ...(doors2 || [])]);
-    const wallSeg = (side) => {
+    const doorAlong = {};
+    for (const sd of doorsOn) { const horiz = sd === 'n' || sd === 's'; const a0 = horiz ? x0 : z0, c = horiz ? x : z; doorAlong[sd] = a0 + 1 + 2 * Math.max(0, Math.min(Math.round((horiz ? w : d) / 2) - 1, Math.round((c - a0 - 1) / 2))); }
+    bld.doors = doorAlong;
+    for (const side of ['n', 's', 'w', 'e']) {
       const horiz = side === 'n' || side === 's';
-      const len = horiz ? w : d - 2 * t;
-      const cz = side === 'n' ? z0 + t / 2 : side === 's' ? z1 - t / 2 : z;
-      const cx = side === 'w' ? x0 + t / 2 : side === 'e' ? x1 - t / 2 : x;
-      const has = doorsOn.has(side);
-      if (!has) { horiz ? B.box(mat, cx, y0, cz, len, total, t) : B.box(mat, cx, y0, cz, t, total, len); return; }
-      const a = (len - doorW) / 2;
-      if (horiz) {
-        B.box(mat, x0 + a / 2, y0, cz, a, total, t); B.box(mat, x1 - a / 2, y0, cz, a, total, t);
-        B.box(mat, cx, y0 + 3, cz, doorW, total - 3, t);
-      } else {
-        B.box(mat, cx, y0, z0 + t + a / 2, t, total, a); B.box(mat, cx, y0, z1 - t - a / 2, t, total, a);
-        B.box(mat, cx, y0 + 3, cz, t, total - 3, doorW);
-      }
-    };
-    ['n', 's', 'e', 'w'].forEach(wallSeg);
+      const edge = side === 'n' ? z0 : side === 's' ? z1 : side === 'w' ? x0 : x1;
+      const a0 = horiz ? x0 - t : z0 - t, a1 = horiz ? x1 + t : z1 + t;
+      const seg = (b0, b1, yb, ht) => { if (b1 - b0 < 0.01) return; horiz ? B.box('wall', (b0 + b1) / 2, yb, edge, b1 - b0, ht, 2 * t, { invisible: true }) : B.box('wall', edge, yb, (b0 + b1) / 2, 2 * t, ht, b1 - b0, { invisible: true }); };
+      if (doorAlong[side] !== undefined) { const c = doorAlong[side]; seg(a0, c - DG / 2, y0, total); seg(c + DG / 2, a1, y0, total); seg(c - DG / 2, c + DG / 2, y0 + 2.6, total - 2.6); }
+      else seg(a0, a1, y0, total);
+    }
+    kitShell({ x0, z0, x1, z1, y0, floors: Array(floors).fill(fh), style, ground, doors: doorAlong, interior: true, cornice: style === 'trim' ? 'trim' : style === 'metal' ? 'metal' : 'brick' });
     const ix0 = x0 + t, ix1 = x1 - t, iz0 = z0 + t, iz1 = z1 - t;
-    B.box(floorMat, x, y0, z, ix1 - ix0, 0.12, iz1 - iz0);
+    B.box('floorK', x, y0, z, ix1 - ix0, 0.12, iz1 - iz0);
     for (let f = 1; f <= floors; f++) {
       const fy = y0 + f * fh - 0.3;
       if (f < floors) {
         const east = f % 2 === 1;
         const hole = east ? [ix1 - 2.4, iz0 + 0.1, ix1, iz0 + 7.4] : [ix0, iz0 + 0.1, ix0 + 2.4, iz0 + 7.4];
-        for (const r of rectsMinus([ix0, iz0, ix1, iz1], hole)) B.box(floorMat, (r[0] + r[2]) / 2, fy, (r[1] + r[3]) / 2, r[2] - r[0], 0.3, r[3] - r[1]);
+        for (const r of rectsMinus([ix0, iz0, ix1, iz1], hole)) B.box('floorK', (r[0] + r[2]) / 2, fy, (r[1] + r[3]) / 2, r[2] - r[0], 0.3, r[3] - r[1]);
         const sx = (hole[0] + hole[2]) / 2, steps = Math.ceil(fh / 0.42), run = (hole[3] - hole[1] - 0.6) / steps;
-        for (let s = 0; s < steps; s++) {
-          const top = y0 + (f - 1) * fh + 0.12 + (s + 1) * (fh / steps);
+        for (let s2 = 0; s2 < steps; s2++) {
+          const topS = y0 + (f - 1) * fh + 0.12 + (s2 + 1) * (fh / steps);
           const base = y0 + (f - 1) * fh + (f === 1 ? 0.12 : 0);
-          B.box('concrete', sx, base, hole[3] - (s + 0.5) * run, 2.4, top - base, run);
+          B.box('concrete', sx, base, hole[3] - (s2 + 0.5) * run, 2.4, topS - base, run);
         }
-        B.box('rail', east ? hole[0] - 0.08 : hole[2] + 0.08, fy + 0.3, (hole[1] + 2.6 + hole[3]) / 2, 0.12, 1, hole[3] - hole[1] - 2.6);
-      } else B.box(roofMat, x, fy, z, w + 0.4, 0.4, d + 0.4);
+        B.box('iron', east ? hole[0] - 0.08 : hole[2] + 0.08, fy + 0.3, (hole[1] + 2.6 + hole[3]) / 2, 0.08, 1, hole[3] - hole[1] - 2.6);
+      } else B.box('roofK', x, fy, z, w - 0.02, 0.3, d - 0.02);
     }
-    B.box('trim', x, y0 + total + 0.1, z0 + 0.15, w + 0.4, 0.6, 0.3);
-    B.box('trim', x, y0 + total + 0.1, z1 - 0.15, w + 0.4, 0.6, 0.3);
-    if (windows) for (let f = 0; f < floors; f++) for (let wx = x0 + 2.5; wx < x1 - 2; wx += 3.5) {
-      for (const [zz, s] of [[z0, 'n'], [z1, 's']]) {
-        if (doorsOn.has(s) && Math.abs(wx - x) < doorW) continue;
-        win(s, wx, zz, y0 + f * fh + 1.2, 1.3, 1.6, s === door || floors > 1);
-      }
-    }
-    if (floors > 1 || h >= 5) { B.box('stone', x, y0 + total - 0.1, z, w + 0.5, 0.3, d + 0.5, { solid: false }); for (let f = 1; f < floors; f++) B.box('stone', x, y0 + f * fh - 0.2, z, w + 0.16, 0.22, d + 0.16, { solid: false }); }
     if (sign) {
-      const sz = door === 's' ? z1 + 0.25 : door === 'n' ? z0 - 0.25 : z;
-      const sx2 = door === 'e' ? x1 + 0.25 : door === 'w' ? x0 - 0.25 : x;
+      const sz = door === 's' ? z1 + 0.3 : door === 'n' ? z0 - 0.3 : z;
+      const sx2 = door === 'e' ? x1 + 0.3 : door === 'w' ? x0 - 0.3 : x;
       const horiz = door === 'n' || door === 's';
-      B.box(sign.mat || 'sign', sx2, y0 + 3.4, sz, horiz ? Math.min(w - 2, 8) : 0.3, 1.1, horiz ? 0.3 : Math.min(d - 2, 8), { solid: false });
-      W.labels.push({ text: sign.text, x: sx2 + (door === 'e' ? 0.2 : door === 'w' ? -0.2 : 0), y: y0 + 3.95, z: sz + (door === 's' ? 0.2 : door === 'n' ? -0.2 : 0), rot: { s: 0, n: Math.PI, e: Math.PI / 2, w: -Math.PI / 2 }[door], color: sign.color || '#ffffff' });
+      B.box(sign.mat || 'sign', sx2, y0 + 3.15, sz, horiz ? Math.min(w - 2, 8) : 0.3, 1.1, horiz ? 0.3 : Math.min(d - 2, 8), { solid: false });
+      W.labels.push({ text: sign.text, x: sx2 + (door === 'e' ? 0.2 : door === 'w' ? -0.2 : 0), y: y0 + 3.7, z: sz + (door === 's' ? 0.2 : door === 'n' ? -0.2 : 0), rot: { s: 0, n: Math.PI, e: Math.PI / 2, w: -Math.PI / 2 }[door], color: sign.color || '#ffffff' });
     }
     for (let f = 0; f < floors; f++) { B.box('lamp', x, y0 + f * fh + fh - 0.42, z, 1.2, 0.1, 0.3, { solid: false }); if (f === 0 || Math.random() < 0.5) W.lights.push({ x, y: y0 + f * fh + fh - 0.9, z, zone: 'surface', c: pick([0xffd8a0, 0xd8e8ff, 0xffe0b0]), i: 35, inside: true }); }
     return bld;
@@ -214,32 +260,31 @@ export function buildWorld(scene) {
   const label = (text, x, z, type) => W.labels.push({ text, x, z, map: true, type });
 
   const props = [];
-  const car = (x, z, rot, m = pick(['carred', 'carblue', 'cargray', 'rust'])) => {
+  const car = (x, z, rot) => {
     props.push([x, z, 4]);
-    const c = Math.cos(rot), s = Math.sin(rot), L = 4.4, Wd = 2;
-    const ax = Math.abs(c) > 0.5;
-    B.box(m, x, 0.35, z, ax ? L : Wd, 0.9, ax ? Wd : L);
-    B.box(m, x - (ax ? 0.3 : 0), 1.25, z - (ax ? 0 : 0.3), ax ? 2.2 : Wd - 0.1, 0.7, ax ? Wd - 0.1 : 2.2);
-    for (const a of [-1, 1]) for (const b of [-1, 1]) B.box('tire', x + (ax ? a * 1.4 : b * 1.02), 0, z + (ax ? b * 1.02 : a * 1.4), ax ? 0.7 : 0.3, 0.7, ax ? 0.3 : 0.7, { solid: false });
+    const name = pick(['cars-normalcar1', 'cars-normalcar2', 'cars-suv', 'cars-taxi', 'cars-sportscar', 'cars-normalcar1', 'cars-cop', 'cars-sportscar2']);
+    placeK(name, x, 0.0, z, rot + Math.PI / 2, 1.1);
+    const ax = Math.abs(Math.cos(rot)) > 0.5;
+    B.box('wall', x, 0, z, ax ? 4.3 : 1.9, 1.4, ax ? 1.9 : 4.3, { invisible: true });
   };
   const container = (x, z, ax = true, stack = 1, m = pick(['container', 'container2', 'container3'])) => {
     props.push([x, z, 8]);
     for (let k = 0; k < stack; k++) B.box(k % 2 ? pick(['container', 'container2', 'container3']) : m, x, 0.15 + k * 2.6, z, ax ? 12 : 2.5, 2.6, ax ? 2.5 : 12);
   };
   const woodStack = (x, z) => { props.push([x, z, 3]); B.box('wood', x, 0.15, z, 2.4, 0.8, 1.2); B.box('wood', x + 0.1, 0.95, z, 2.2, 0.6, 1.1); };
-  const lampPost = (x, z) => { props.push([x, z, 2]); B.box('metal', x, 0.15, z, 0.25, 6, 0.25); B.box('metal', x, 6.05, z, 0.25, 0.15, 1.2, { solid: false }); B.box('lamp', x, 5.95, z + 0.4, 0.5, 0.1, 0.4, { solid: false }); W.lights.push({ x, y: 5.6, z: z + 0.4, zone: 'surface', c: 0xffc27a, i: 60, lamp: true }); };
+  const lampPost = (x, z) => { props.push([x, z, 2]); placeK(pick(['streetlight-single', 'streetlight-single', 'streetlight-double']), x, 0.15, z, x * 7.3, 5.6); B.box('wall', x, 0.15, z, 0.35, 5, 0.35, { invisible: true }); W.lights.push({ x, y: 5.4, z, zone: 'surface', c: 0xffc27a, i: 60, lamp: true }); };
   const fence = (x0, z0, x1, z1, h = 3) => { B.box('fence', (x0 + x1) / 2, 0.15, (z0 + z1) / 2, Math.max(0.15, Math.abs(x1 - x0)), h, Math.max(0.15, Math.abs(z1 - z0))); };
 
   // ---------- CENTRAL PLAZA (block 2,2) — Central safehouse, Thrift Store, Subway headhouse ----------
   label('Central Plaza', 0, 10, 'poi');
-  const thrift = building({ x: 0, z: -22, w: 24, d: 18, h: 5, mat: 'plaster', door: 's', name: 'Thrift Store', alarm: true, sign: { text: 'THRIFT', color: '#ffd36b' } });
+  const thrift = building({ x: 0, z: -22, w: 24, d: 18, h: 5, mat: 'plaster', door: 's', ground: 'metal', name: 'Thrift Store', alarm: true, sign: { text: 'THRIFT', color: '#ffd36b' } });
   counter(-6, -20, 6, 1.2); reg(-7.5, 1.32, -20, 0, thrift); reg(-4.5, 1.32, -20, 0, thrift);
   B.box('plaster', 4, 0.27, -24, 0.3, 4.6, 8); safe(8, 0.27, -28.5, 0, true, thrift);
   for (let i = 0; i < 3; i++) B.box('wood', -8 + i * 4, 0.27, -28, 2.5, 2, 1);
   scrap(-9, 0.27, -16); label('Thrift Store', 0, -22, 'zone');
-  const safehouse = building({ x: -18, z: 18, w: 12, d: 10, h: 4.5, mat: 'concrete', door: 'e', name: 'Central Safehouse', sign: { text: 'SAFEHOUSE', color: '#9be3ff' } });
+  const safehouse = building({ x: -18, z: 18, w: 12, d: 10, h: 4.5, mat: 'concrete', door: 'e', style: 'trim', ground: 'trim', name: 'Central Safehouse', sign: { text: 'SAFEHOUSE', color: '#9be3ff' } });
   W.spawns.push([-18, 18], [12, 22], [-4, 6]);
-  const sub = building({ x: 16, z: 18, w: 8, d: 6, h: 4, mat: 'trim', door: 'w', name: 'Subway Entrance', windows: false, sign: { text: 'SUBWAY', color: '#ffffff', mat: 'bluesign' } });
+  const sub = building({ x: 16, z: 18, w: 8, d: 6, h: 4, mat: 'trim', door: 'w', style: 'trim', ground: 'trim', name: 'Subway Entrance', windows: false, sign: { text: 'SUBWAY', color: '#ffffff', mat: 'bluesign' } });
   W.teleports.push({ x: 14, y: 0.27, z: 18, to: 'subway', tx: -36, tz: 9, label: 'Go down to Subway' });
   label('Subway', 16, 18, 'zone');
   atm(-6, 2, 0, 0.15, 'Plaza ATM'); atm(6, 2, 0, 0.15, 'Plaza ATM 2');
@@ -251,13 +296,13 @@ export function buildWorld(scene) {
   woodStack(-26, 28); woodStack(24, 30);
 
   // ---------- block 2,1: Cafe + Barber ----------
-  const cafe = building({ x: 0, z: -60, w: 20, d: 14, h: 5, mat: 'brick', door: 's', name: 'Cafe', alarm: true, sign: { text: 'CAFE', color: '#ffb27a' } });
+  const cafe = building({ x: 0, z: -60, w: 20, d: 14, h: 5, mat: 'brick', door: 's', ground: 'metal', name: 'Cafe', alarm: true, sign: { text: 'CAFE', color: '#ffb27a' } });
   counter(-3, -60, 8, 1.2); reg(-4, 1.32, -60, 0, cafe);
   B.box('brick', 3.5, 0.27, -64.5, 0.3, 4.6, 4.4); B.box('brick', 6.5, 0.27, -60.3, 6.2, 4.6, 0.3);
   safe(8, 0.27, -65, 0, false, cafe);
   for (const [tx, tz] of [[-6, -55], [0, -55], [6, -55]]) { B.box('wood', tx, 0.27, tz, 1.4, 0.8, 1.4); }
   label('Cafe', 0, -60, 'zone'); atm(-7, -51.5, 0, 0.15, 'Cafe ATM');
-  const barber = building({ x: -22, z: -88, w: 12, d: 10, h: 4.5, mat: 'plaster', door: 'e', name: 'Barber Shop', alarm: true, sign: { text: 'BARBER', color: '#ff8080' } });
+  const barber = building({ x: -22, z: -88, w: 12, d: 10, h: 4.5, mat: 'plaster', door: 'e', ground: 'metal', name: 'Barber Shop', alarm: true, sign: { text: 'BARBER', color: '#ff8080' } });
   counter(-20, -91, 1.2, 3); reg(-20, 1.32, -91.5, Math.PI / 2, barber);
   B.box('dark', -25, 0.27, -86, 1.2, 1.2, 1.2); B.box('dark', -25, 0.27, -90, 1.2, 1.2, 1.2);
   label('Barber Shop', -22, -88, 'poi');
@@ -276,7 +321,7 @@ export function buildWorld(scene) {
   scrap(70, 0.27, -55); scrap(70, 4.15, -57);
 
   // ---------- block 3,2: Armory 1 (blue) ----------
-  const arm1 = building({ x: 62, z: -24, w: 16, d: 12, h: 5, mat: 'concrete', door: 'n', name: 'Armory 1', sign: { text: 'ARMORY', color: '#9fc6ff', mat: 'bluesign' } });
+  const arm1 = building({ x: 62, z: -24, w: 16, d: 12, h: 5, mat: 'concrete', door: 'n', style: 'trim', ground: 'trim', name: 'Armory 1', sign: { text: 'ARMORY', color: '#9fc6ff', mat: 'bluesign' } });
   counter(62, -24, 10, 1.2);
   W.armories.push({ x: 62, y: 0.27, z: -22, rot: 0, name: 'Armory 1', color: 'blue' });
   label('Armory 1', 62, -24, 'armory');
@@ -308,7 +353,7 @@ export function buildWorld(scene) {
   car(-140, -58, 0); car(-150, -58, 0.05);
 
   // ---------- block 4,0: Factory ----------
-  const fac = building({ x: 143, z: -140, w: 34, d: 26, h: 10, mat: 'metal', door: 'w', doors2: ['n'], doorW: 4, name: 'Factory', alarm: false, windows: false, sign: { text: 'FACTORY', color: '#ffe08a' } });
+  const fac = building({ x: 143, z: -140, w: 34, d: 26, h: 10, mat: 'metal', door: 'w', doors2: ['n'], doorW: 4, style: 'metal', ground: 'metal', name: 'Factory', alarm: false, windows: false, sign: { text: 'FACTORY', color: '#ffe08a' } });
   for (let i = 0; i < 3; i++) { B.box('rust', 135 + i * 8, 0.27, -142, 3, 3, 6); }
   B.box('metal', 150, 4, -150, 10, 0.3, 4); for (let s = 0; s < 9; s++) B.box('concrete', 139.9 + s * 0.6, 0.27, -149, 0.6, 0.45 * (s + 1), 1.2);
   safe(131, 0.27, -151, 0, false, fac); safe(151, 4.3, -151, 0, false, fac); safe(157, 0.27, -130, 0, false, fac);
@@ -319,7 +364,7 @@ export function buildWorld(scene) {
   container(160, -110 - 10, true, 2);
 
   // ---------- block 4,1: Workshop ----------
-  const ws = building({ x: 140, z: -80, w: 18, d: 14, h: 5, mat: 'brick2', door: 'w', doorW: 4, name: 'Workshop', alarm: true, sign: { text: 'WORKSHOP', color: '#ffcf6b' } });
+  const ws = building({ x: 140, z: -80, w: 18, d: 14, h: 5, mat: 'brick2', door: 'w', doorW: 4, ground: 'metal', name: 'Workshop', alarm: true, sign: { text: 'WORKSHOP', color: '#ffcf6b' } });
   counter(144, -84, 6, 1.2); reg(143, 1.32, -84, 0, ws); safe(147, 0.27, -74.5, Math.PI, false, ws);
   B.box('metal', 136, 0.27, -76, 3, 1.1, 1.4); car(140, -80, 0, 'cargray');
   scrap(135, 0.27, -86); label('Workshop', 140, -80, 'zone');
@@ -327,7 +372,7 @@ export function buildWorld(scene) {
   atm(124, -96, Math.PI / 2, 0.15, 'Workshop ATM');
 
   // ---------- block 3,0: Warehouse ----------
-  const wh = building({ x: 76, z: -142, w: 40, d: 26, h: 9, mat: 'rust', door: 'n', doorW: 5, name: 'Warehouse', windows: false, sign: { text: 'WAREHOUSE', color: '#dddddd' } });
+  const wh = building({ x: 76, z: -142, w: 40, d: 26, h: 9, mat: 'rust', door: 'n', doorW: 5, style: 'metal', ground: 'metal', name: 'Warehouse', windows: false, sign: { text: 'WAREHOUSE', color: '#dddddd' } });
   for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) B.box('wood', 62 + i * 8, 0.27, -138 + j * 7, 4, 2.4 + (i % 2) * 1.2, 2.4);
   B.box('metal', 89, 4.6, -148, 12, 0.3, 4); for (let s = 0; s < 11; s++) B.box('concrete', 76.7 + s * 0.6, 0.27, -148, 0.6, 0.42 * (s + 1), 1.4);
   safe(93, 4.9, -149, 0, false, wh); scrap(60, 0.27, -150); crate(91, 0.27, -132, 'red');
@@ -357,7 +402,7 @@ export function buildWorld(scene) {
   label('Garages', -75, 16, 'poi'); atm(-60, -2, 0, 0.15, 'Garages ATM');
 
   // ---------- block 1,3: Gas station + blown-up tankers ----------
-  const gas = building({ x: -80, z: 72, w: 14, d: 10, h: 4.5, mat: 'plaster', door: 'n', name: 'Gas Station', alarm: true, sign: { text: 'GAS', color: '#ffe36b', mat: 'redsign' } });
+  const gas = building({ x: -80, z: 72, w: 14, d: 10, h: 4.5, mat: 'plaster', door: 'n', ground: 'metal', style: 'trim', name: 'Gas Station', alarm: true, sign: { text: 'GAS', color: '#ffe36b', mat: 'redsign' } });
   counter(-80, 74, 6, 1.2); reg(-81, 1.32, 74, Math.PI, gas);
   B.box('roof', -70, 5.2, 58, 20, 0.5, 10, { solid: false }); for (const [px, pz] of [[-78, 55], [-62, 55], [-78, 61], [-62, 61]]) B.box('metal', px, 0.15, pz, 0.5, 5.05, 0.5);
   B.box('metal', -73, 0.15, 58, 1, 1.6, 0.8); B.box('metal', -67, 0.15, 58, 1, 1.6, 0.8);
@@ -376,20 +421,20 @@ export function buildWorld(scene) {
   scrap(-140, 0.27, 70); container(-160, 95, true, 2);
 
   // ---------- block 2,3/2,4: market + south ----------
-  building({ x: 0, z: 72, w: 30, d: 16, h: 5, mat: 'brick2', door: 'n', name: 'Market Hall', sign: { text: 'MARKET', color: '#ffffff' } });
+  building({ x: 0, z: 72, w: 30, d: 16, h: 5, mat: 'brick2', door: 'n', style: 'trim', ground: 'trim', name: 'Market Hall', sign: { text: 'MARKET', color: '#ffffff' } });
   scrap(-8, 0.27, 72); scrap(8, 0.27, 74);
   container(-15, 140, true, 2); container(10, 140, true, 1); container(-15, 155, true, 1); container(10, 155, true, 3); container(25, 148, false, 2);
   label('Container Yard', 0, 148, 'poi'); W.airdrops.push([0, 125]);
   scrap(-2, 0.15, 148); crate(3, 0.15, 132, 'red');
 
   // ---------- block 3,4: Pizzeria (Illegal Pizza) ----------
-  const piz = building({ x: 70, z: 145, w: 18, d: 14, h: 5, mat: 'brick', door: 'n', name: 'Pizzeria', alarm: true, sign: { text: 'PIZZA', color: '#ffd36b', mat: 'redsign' } });
+  const piz = building({ x: 70, z: 145, w: 18, d: 14, h: 5, mat: 'brick', door: 'n', ground: 'metal', name: 'Pizzeria', alarm: true, sign: { text: 'PIZZA', color: '#ffd36b', mat: 'redsign' } });
   counter(70, 143, 8, 1.2); reg(68, 1.32, 143, Math.PI, piz); B.box('pizza', 74, 0.27, 148, 3, 1.6, 2);
   label('Pizzeria', 70, 145, 'zone'); atm(60, 127.5, 0, 0.15, 'Pizzeria ATM');
 
   // ---------- block 3,3: Armory 2 (red) behind buildings across from Pizzeria ----------
   building({ x: 70, z: 95, w: 26, d: 10, h: 5, mat: 'brick2', door: 'w', name: 'Shops' });
-  const arm2 = building({ x: 92, z: 68, w: 14, d: 12, h: 5, mat: 'concrete', door: 'w', name: 'Armory 2', sign: { text: 'ARMORY', color: '#ff9f9f', mat: 'redsign' } });
+  const arm2 = building({ x: 92, z: 68, w: 14, d: 12, h: 5, mat: 'concrete', door: 'w', style: 'trim', ground: 'trim', name: 'Armory 2', sign: { text: 'ARMORY', color: '#ff9f9f', mat: 'redsign' } });
   counter(94, 68, 1.2, 8);
   W.armories.push({ x: 96, y: 0.27, z: 68, rot: Math.PI / 2, name: 'Armory 2', color: 'red' });
   label('Armory 2', 92, 68, 'armory');
@@ -543,48 +588,30 @@ export function buildWorld(scene) {
   pts.push(...props);
   const free = (x0, z0, x1, z1) => !reserved.some(r => x0 < r[2] && x1 > r[0] && z0 < r[3] && z1 > r[1]) && !pts.some(([px, pz, r]) => px > x0 - r && px < x1 + r && pz > z0 - r && pz < z1 + r);
   const fill = (x0, z0, x1, z1, face) => {
-    const fh = 3.4, floors = [2, 3, 3, 4, 4, 5, 6][randi(0, 6)], h = floors * fh + 0.6;
-    const mat = pick(['brick', 'brick', 'brickdark', 'brickgrey', 'brick2', 'brickgrey', 'plaster']);
-    const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-    B.box(mat, cx, 0.15, cz, w, h, d);
-    B.box('roof', cx, 0.15 + h, cz, w - 0.2, 0.1, d - 0.2, { solid: false });
-    dress(x0, z0, x1, z1, h, face, floors, fh);
-    if (Math.random() < 0.7) B.box('acunit', cx + rand(-w / 4, w / 4), 0.25 + h, cz + rand(-d / 4, d / 4), 1.6, 1.0, 1.2);
-    if (Math.random() < 0.4) { B.box('metal', cx - w / 4, 0.25 + h, cz, 0.3, 2.2, 0.3, { solid: false }); B.box('rust', cx - w / 4, 2.45 + h, cz, 1.6, 1.8, 1.6, { solid: false }); }
-    const ax = face === 'n' || face === 's', span = ax ? w : d;
-    const fz = face === 'n' ? z0 : face === 's' ? z1 : null, fx = face === 'w' ? x0 : face === 'e' ? x1 : null;
-    const along0 = ax ? x0 : z0;
-    const doorAt = along0 + span * (Math.random() < 0.5 ? 0.25 : 0.7);
-    const shutter = Math.random() < 0.45;
-    for (let f = 0; f < floors; f++) {
-      for (let t = along0 + 1.8; t < along0 + span - 1.4; t += 2.8) {
-        if (f === 0 && Math.abs(t - doorAt) < (shutter ? 2.6 : 1.4)) continue;
-        if (ax) win(face, t, fz, 0.15 + f * fh + (f === 0 ? 1.15 : 0.9), 1.3, 1.6, true);
-        else win(face, fx, t, 0.15 + f * fh + (f === 0 ? 1.15 : 0.9), 1.3, 1.6, true);
-        if (f > 0 && Math.random() < 0.12) { const sg = face === 's' || face === 'e' ? 1 : -1; ax ? B.box('acunit', t, 0.15 + f * fh + 0.35, fz + sg * 0.3, 0.8, 0.5, 0.55, { solid: false }) : B.box('acunit', fx + sg * 0.3, 0.15 + f * fh + 0.35, t, 0.55, 0.5, 0.8, { solid: false }); }
-      }
-      for (const [os, ox, oz] of ax ? [[face === 'n' ? 's' : 'n', 0, face === 'n' ? z1 : z0]] : [[face === 'w' ? 'e' : 'w', face === 'w' ? x1 : x0, 0]]) {
-        for (let t = along0 + 2; t < along0 + span - 1.5; t += 3.2) ax ? win(os, t, oz, 0.15 + f * fh + 1, 1.2, 1.5, false) : win(os, ox, t, 0.15 + f * fh + 1, 1.2, 1.5, false);
-      }
+    x1 = x0 + Math.max(6, Math.round((x1 - x0) / 2) * 2); z1 = z0 + Math.max(6, Math.round((z1 - z0) / 2) * 2);
+    const nf = [2, 3, 3, 4, 4, 5, 6][randi(0, 6)];
+    const style = Math.random() < 0.82 ? 'brick' : 'trim';
+    const ground = pick(['metal', 'metal', 'brick', 'trim']);
+    const horiz = face === 'n' || face === 's';
+    const along0 = horiz ? x0 : z0, span = horiz ? x1 - x0 : z1 - z0;
+    const doorAt = along0 + 1 + 2 * Math.floor((span / 2) * (Math.random() < 0.5 ? 0.3 : 0.65));
+    const top = kitShell({ x0, z0, x1, z1, floors: Array(nf).fill(3), style, ground, doors: { [face]: doorAt }, closedDoors: true, cornice: style === 'trim' ? 'trim' : pick(['brick', 'brick', 'metal']) });
+    B.box('wall', (x0 + x1) / 2, 0.15, (z0 + z1) / 2, x1 - x0 + 0.4, top + 0.85, z1 - z0 + 0.4, { invisible: true });
+    B.box('roofK', (x0 + x1) / 2, top - 0.2, (z0 + z1) / 2, x1 - x0 - 0.02, 0.2, z1 - z0 - 0.02, { solid: false });
+    for (let k = 0; k < randi(1, 3); k++) placeK('prop-acunit', rand(x0 + 1.5, x1 - 1.5), top, rand(z0 + 1.5, z1 - 1.5), randi(0, 3) * Math.PI / 2, 1.6);
+    if (Math.random() < 0.4) { B.box('metal', (x0 + x1) / 2 - 1, top, (z0 + z1) / 2, 0.3, 2.2, 0.3, { solid: false }); B.box('rust', (x0 + x1) / 2 - 1, top + 2.2, (z0 + z1) / 2, 1.6, 1.8, 1.6, { solid: false }); }
+    const sg = face === 's' || face === 'e' ? 1 : -1, fz = face === 'n' ? z0 : z1, fx = face === 'w' ? x0 : x1;
+    if (ground !== 'metal' && Math.random() < 0.7) {
+      const sx = horiz ? doorAt : fx + sg * 0.2, sz = horiz ? fz + sg * 0.2 : doorAt, r = ROT[face] + Math.PI;
+      placeK('stairs-entrance-concrete', sx, 0.15, sz, r, 1, 0.3);
     }
-    const sg = face === 's' || face === 'e' ? 1 : -1;
-    const P = (out, along, y, ww, hh, dd, mat, o) => ax ? B.box(mat, doorAt + along, y, fz + sg * out, ww, hh, dd, o) : B.box(mat, fx + sg * out, y, doorAt + along, dd, hh, ww, o);
-    if (shutter) {
-      P(0.05, 0, 0.15, 3.4, 3.0, 0.1, 'shutter', { solid: false });
-      P(0.22, 0, 3.15, 3.8, 0.45, 0.44, 'pipe', { solid: false });
-      P(0.1, -1.8, 0.15, 0.2, 3.3, 0.2, 'stone', { solid: false }); P(0.1, 1.8, 0.15, 0.2, 3.3, 0.2, 'stone', { solid: false });
-    } else {
-      P(0.03, 0, 0.6, 1.2, 2.3, 0.06, 'frame', { solid: false });
-      P(0.08, -0.7, 0.6, 0.18, 2.5, 0.16, 'stone', { solid: false }); P(0.08, 0.7, 0.6, 0.18, 2.5, 0.16, 'stone', { solid: false }); P(0.1, 0, 3.0, 1.8, 0.25, 0.2, 'stone', { solid: false });
-      P(0.55, 0, 0.15, 1.8, 0.3, 0.9, 'stone'); P(0.4, 0, 0.45, 1.8, 0.15, 0.6, 'stone');
-      P(0.75, -0.95, 0.15, 0.05, 1.0, 1.3, 'iron', { solid: false }); P(0.75, 0.95, 0.15, 0.05, 1.0, 1.3, 'iron', { solid: false });
-    }
-    const lx = ax ? doorAt + 1.0 : fx + sg * 0.35, lz = ax ? fz + sg * 0.35 : doorAt + 1.0;
+    for (let i = 0; i < Math.floor(span / 2); i++) if (Math.random() < 0.18) { const t = along0 + 1 + 2 * i; if (Math.abs(t - doorAt) < 2) continue; horiz ? placeK('prop-acunit', t, 0.15 + 3 * randi(1, nf - 1) + 0.2, fz + sg * 0.22, ROT[face], 1.3) : placeK('prop-acunit', fx + sg * 0.22, 0.15 + 3 * randi(1, nf - 1) + 0.2, t, ROT[face], 1.3); }
+    for (let k = 0; k < randi(0, 3); k++) { const t = along0 + rand(0.8, span - 0.8); if (Math.abs(t - doorAt) < 2) continue; W.bags.push(horiz ? [t, 0.15, fz + sg * rand(0.6, 1.2), rand(0.8, 1.3)] : [fx + sg * rand(0.6, 1.2), 0.15, t, rand(0.8, 1.3)]); }
+    const lx = horiz ? doorAt + 1.2 : fx + sg * 0.4, lz = horiz ? fz + sg * 0.4 : doorAt + 1.2;
     B.box('lamp', lx, 3.0, lz, 0.22, 0.3, 0.22, { solid: false });
-    if (Math.random() < 0.65) W.lights.push({ x: lx + (ax ? 0 : sg * 0.6), y: 3.0, z: lz + (ax ? sg * 0.6 : 0), zone: 'surface', c: pick([0xffb870, 0xffd090, 0xb8d8ff]), i: 16, lamp: true, small: true });
-    if (floors >= 3 && Math.random() < 0.6) fireEscape(face, x0, z0, x1, z1, floors, fh);
-    for (let k = 0; k < randi(0, 3); k++) { const t = along0 + rand(0.8, span - 0.8); if (Math.abs(t - doorAt) < 2) continue; W.bags.push(ax ? [t, 0.15, fz + sg * rand(0.5, 1.2), rand(0.8, 1.3)] : [fx + sg * rand(0.5, 1.2), 0.15, t, rand(0.8, 1.3)]); }
-    W.buildings.push({ name: '', filler: true, x: cx, z: cz, x0, x1, z0, z1, h });
+    if (Math.random() < 0.55) W.lights.push({ x: lx + (horiz ? 0 : sg * 0.6), y: 3.0, z: lz + (horiz ? sg * 0.6 : 0), zone: 'surface', c: pick([0xffb870, 0xffd090, 0xb8d8ff]), i: 16, lamp: true, small: true });
+    if (nf >= 3 && Math.random() < 0.55) fireEscape(face, x0, z0, x1, z1, nf, 3);
+    W.buildings.push({ name: '', filler: true, x: (x0 + x1) / 2, z: (z0 + z1) / 2, x0, x1, z0, z1, h: top });
     reserved.push([x0 - 0.5, z0 - 0.5, x1 + 0.5, z1 + 0.5]);
     return { x0, z0, x1, z1, face };
   };
@@ -597,7 +624,7 @@ export function buildWorld(scene) {
       let t = a0 + (horiz ? 0 : 12);
       const tEnd = a1 - (horiz ? 0 : 12);
       while (t < tEnd - 7) {
-        const len = Math.min(rand(9, 20), tEnd - t), dep = rand(8, 13);
+        const len = Math.min(2 * randi(5, 10), tEnd - t), dep = 2 * randi(7, 11);
         if (len < 7) break;
         const r = side === 'n' ? [t, iz0, t + len, iz0 + dep] : side === 's' ? [t, iz1 - dep, t + len, iz1] : side === 'w' ? [ix0, t, ix0 + dep, t + len] : [ix1 - dep, t, ix1, t + len];
         if (free(...r)) fill(...r, side);
@@ -637,8 +664,8 @@ export function buildWorld(scene) {
       const x = side < 2 ? bx0 + (bx1 - bx0) * along : side === 2 ? bx0 + 1.6 : bx1 - 1.6;
       const z = side >= 2 ? bz0 + (bz1 - bz0) * along : side === 0 ? bz0 + 1.6 : bz1 - 1.6;
       if (!free(x - 1.2, z - 1.2, x + 1.2, z + 1.2)) continue;
-      W.trees.push([x, z, rand(0.85, 1.2)]); B.collider(x - 0.22, 0.15, z - 0.22, x + 0.22, 4, z + 0.22);
-      B.box('stone', x, 0.15, z, 1.4, 0.12, 1.4, { solid: false });
+      placeK(pick(['trees-tree-1', 'trees-tree-2', 'trees-tree-3', 'trees-tree-5', 'trees-deadtree-1', 'trees-deadtree-2', 'trees-deadtree-4', 'trees-tree-7']), x, 0.15, z, rand(0, 6.28), rand(1.1, 1.5)); B.collider(x - 0.22, 0.15, z - 0.22, x + 0.22, 4, z + 0.22);
+      placeK('sidewalk-planter', x, 0.15, z, 0);
       reserved.push([x - 1.5, z - 1.5, x + 1.5, z + 1.5]);
     }
   }));
@@ -648,6 +675,14 @@ export function buildWorld(scene) {
     if (!onRoad && W.buildings.some(b => x > b.x0 - 0.2 && x < b.x1 + 0.2 && z > b.z0 - 0.2 && z < b.z1 + 0.2)) continue;
     W.papers.push([x, onRoad ? 0.012 : 0.162, z, rand(0, 6.28)]);
   }
+  for (const rx of ROADS) for (const rz of ROADS) {
+    for (const [dx, dz, ry] of [[-7.4, -7.4, 0], [7.4, 7.4, Math.PI], [7.4, -7.4, -Math.PI / 2], [-7.4, 7.4, Math.PI / 2]]) {
+      if (Math.random() < 0.6) { placeK(pick(['trafficlight', 'trafficlight-2']), rx + dx, 0.15, rz + dz, ry, 4.6); B.box('wall', rx + dx, 0.15, rz + dz, 0.3, 4, 0.3, { invisible: true }); }
+      else { placeK(pick(['sign-stop', 'sign-noparking', 'sign-triangle']), rx + dx, 0.15, rz + dz, ry, 4.4); }
+    }
+  }
+  for (let i = 0; i < 70; i++) { const r = pick(ROADS), t = rand(-165, 165); if (ROADS.some(rr => Math.abs(t - rr) < 10)) continue; const v = Math.random() < 0.5; placeK('prop-manholecover', v ? r + rand(-3, 3) : t, 0.012, v ? t : r + rand(-3, 3), 0, 1.4); }
+  for (const r of ROADS) for (let t = -166; t < 166; t += 14) { if (ROADS.some(rr => Math.abs(t - rr) < 9)) continue; for (const o of [-5.7, 5.7]) placeK('prop-drain', r + o, 0.008, t, 0, 1.2); for (const o of [-5.7, 5.7]) placeK('prop-drain', t + 5, 0.008, r + o, 0, 1.2); }
   for (let i = 0; i < 40; i++) {
     const r = pick(ROADS), t = rand(-160, 160), v = Math.random() < 0.5;
     if (ROADS.some(rr => Math.abs(t - rr) < 8)) continue;

@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { ITEMS, ITEM, isGun, isMeleeish, CODES, BOT_NAMES, ALLOWANCE, ALLOWANCE_SEC, START_BANK, MAX_BOUNTY, xpForLevel, levelReward, unlockPrice } from './data.js';
 import { Physics, NavGrid, Sfx, rand, randi, pick, clamp, fmt } from './engine.js';
-import { buildWorld, makeCharacter, ZONES, zoneOfY, EDGE } from './world.js';
+import { buildWorld, ZONES, zoneOfY, EDGE } from './world.js';
+import { loadAssets, Instancer, size as kitSize, gunModel } from './assets.js';
+import { makeChar, HEAD_Y, randomOutfit } from './chars.js';
+import { RoomEnvironment } from './pp/environments/RoomEnvironment.js';
 import * as UI from './ui.js';
 import { EffectComposer } from './pp/postprocessing/EffectComposer.js';
 import { RenderPass } from './pp/postprocessing/RenderPass.js';
@@ -60,11 +63,18 @@ export const G = {
 };
 const sfx = G.sfx;
 
-const W = buildWorld(scene);
+const loadEl = document.querySelector('#loading span');
+const KITA = await loadAssets((f, n) => { if (loadEl) loadEl.textContent = 'LOADING ' + Math.round(f * 100) + '%'; });
+if (loadEl) loadEl.textContent = 'BUILDING SECTOR-07...';
+await new Promise(r => setTimeout(r, 30));
+{ const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.6; vmScene.environment = scene.environment; }
+const KI = new Instancer();
+const W = buildWorld(scene, { I: KI, mats: KITA.mats, size: kitSize });
+KI.flush(scene);
 const phys = new Physics(W.colliders);
 G.W = W; G.phys = phys;
 const navs = {
-  surface: new NavGrid(phys, -EDGE, -EDGE, EDGE, EDGE, 0.15, 1.5),
+  surface: new NavGrid(phys, -EDGE - 0.5, -EDGE - 0.5, EDGE + 0.5, EDGE + 0.5, 0.15, 1, 0.3),
   subway: new NavGrid(phys, -45, 0, 45, 30, -12, 1.5),
   sewer: new NavGrid(phys, -160, -160, 160, 160, -26, 2),
   vibe: new NavGrid(phys, -33, -12, 33, 30, -50, 1.5),
@@ -103,6 +113,7 @@ const bgeo = (w, h, d) => { const k = w + ',' + h + ',' + d; if (!boxGeoCache.ha
 function bx(parent, w, h, d, c, x, y, z, e) { const m = new THREE.Mesh(bgeo(w, h, d), lam(c, e)); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; }
 
 export function weaponModel(item) {
+  const gm = gunModel(item); if (gm) return gm;
   const g = new THREE.Group(), D = 0x34373c, S = 0x7a8088, Wd = 0x8a5e34;
   const wooden = ['mosin', 'sks', 'akm', 'tommy', 'doublebarrel', 'ithaca', 'r870'].includes(item.id);
   const T = item.type;
@@ -196,6 +207,7 @@ for (const w of W.waters) {
 
 const SAFE_RESPAWN = 720, REG_RESPAWN = 600, SCRAP_RESPAWN = 300, CRATE_RESPAWN = 900;
 function faceRot(x, z) { return 0; }
+const npcs = [];
 function buildInteractables() {
   for (const a of W.atms) {
     const g = new THREE.Group();
@@ -207,9 +219,11 @@ function buildInteractables() {
     G.inter.push({ kind: 'atm', ref: a, x: a.x, y: a.y + 1.2, z: a.z, range: 2.4, label: () => 'Use ATM', use: () => UI.open('atm', a) });
   }
   const dealerModel = (d, shirt, hat) => {
-    const m = makeCharacter(shirt, 0x1a1a1a, pick([0xf2c99a, 0xc68c5a, 0x8d5a3a]), hat);
+    const o = randomOutfit(); o.shirt = shirt; o.head = hat === 0x8a1010 ? 'ski' : hat === 0x222222 ? 'cap' : 'hood'; o.top = hat === 0x222222 ? 'vest' : 'hoodie'; o.vest = hat === 0x222222 ? 0x2a2e28 : null;
+    const m = makeChar(o);
     m.position.set(d.x, d.y, d.z); m.rotation.y = d.rot || 0; scene.add(m);
-    m.userData.armR.rotation.x = 0.3; m.userData.armL.rotation.x = 0.3;
+    m.userData.play('idle');
+    npcs.push(m);
     return m;
   };
   for (const d of W.dealers) {
@@ -458,18 +472,19 @@ let vmItem = null, vmSwing = 0;
 function buildVM() {
   vmScene.remove(vm); vm = new THREE.Group(); vmScene.add(vm);
   const e = P.inv[P.eq]; vmItem = e ? ITEM[e.id] : ITEM.fists;
-  const skin = 0xe8b890, sleeve = 0x4a5a4a;
-  const arm = (x, rx) => { const a = new THREE.Group(); bx(a, 0.09, 0.09, 0.42, sleeve, 0, 0, 0.18); bx(a, 0.085, 0.085, 0.1, skin, 0, 0, -0.07); a.position.set(x, -0.05, 0); a.rotation.x = rx; return a; };
+  const skin = 0x151515, sleeve = 0x2e3440;
+  const arm = (x, rx) => { const a = new THREE.Group(); bx(a, 0.12, 0.12, 0.46, sleeve, 0, 0, 0.2); bx(a, 0.125, 0.125, 0.04, 0x252a33, 0, 0, -0.01); bx(a, 0.115, 0.115, 0.11, skin, 0, 0, -0.08); a.position.set(x, -0.05, 0); a.rotation.x = rx; return a; };
   if (vmItem.id === 'fists' || vmItem.id === 'knuckledusters') {
     const l = arm(-0.18, 0.1), r = arm(0.18, 0.1); vm.add(l, r); vm.userData.l = l; vm.userData.r = r;
     if (vmItem.id === 'knuckledusters') { bx(l, 0.11, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); bx(r, 0.11, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); }
   } else {
-    const w = weaponModel(vmItem); vm.add(w); vm.userData.w = w;
+    const w = weaponModel(vmItem); vm.add(w); vm.userData.w = w; if (isGun(vmItem)) w.scale.setScalar(0.62);
     const r = arm(0.0, 0); r.position.set(0.02, -0.12, 0.08); vm.add(r);
-    if (isGun(vmItem)) { const l = arm(-0.06, -0.2); l.position.set(-0.05, -0.09, -0.22); l.rotation.y = 0.35; vm.add(l); }
+    r.position.set(0.02, -0.08, 0.06); r.scale.setScalar(0.75);
+    if (isGun(vmItem)) { const l = arm(-0.06, -0.2); l.position.set(-0.06, -0.06, ['rifle', 'sniper', 'shotgun'].includes(vmItem.type) ? -0.2 : -0.04); l.rotation.y = 0.45; l.scale.setScalar(0.75); vm.add(l); }
     if (isMeleeish(vmItem)) w.rotation.x = 0.9;
   }
-  vm.userData.base = isGun(vmItem) ? (['rifle', 'sniper', 'shotgun', 'launcher'].includes(vmItem.type) ? new THREE.Vector3(0.21, -0.2, -0.72) : vmItem.type === 'smg' ? new THREE.Vector3(0.2, -0.2, -0.6) : new THREE.Vector3(0.19, -0.19, -0.5)) : vm.userData.l ? new THREE.Vector3(0, -0.27, -0.4) : new THREE.Vector3(0.22, -0.24, -0.45);
+  vm.userData.base = isGun(vmItem) ? (['rifle', 'sniper', 'shotgun', 'launcher'].includes(vmItem.type) ? new THREE.Vector3(0.2, -0.24, -0.62) : vmItem.type === 'smg' ? new THREE.Vector3(0.19, -0.22, -0.55) : new THREE.Vector3(0.17, -0.2, -0.48)) : vm.userData.l ? new THREE.Vector3(0, -0.27, -0.4) : new THREE.Vector3(0.22, -0.24, -0.45);
   vm.position.copy(vm.userData.base);
 }
 
@@ -499,8 +514,7 @@ function spawnBot(zone, at) {
   }
   const level = Math.max(1, Math.round(Math.pow(Math.random(), 1.7) * 95) + (zone === 'vibe' ? 25 : 0));
   const lo = botLoadout(level);
-  const model = makeCharacter(pick(SHIRTS), pick([0x1a1a1a, 0x2a3a5a, 0x3a3a3a, 0x4a3a2a]), pick([0xf2c99a, 0xc68c5a, 0x8d5a3a, 0xe8b896]), Math.random() < 0.4 ? pick([0x111111, 0x8a1010, 0x1a3a8a]) : undefined);
-  outfit(model);
+  const model = makeChar();
   scene.add(model);
   const b = {
     id: ++botId, name: pick(BOT_NAMES) + (Math.random() < 0.5 ? randi(1, 99) : ''), level, skill: clamp(level / 100 + rand(-0.15, 0.25), 0.05, 1), zone,
@@ -525,10 +539,8 @@ function outfit(model) {
 }
 function setBotWeapon(b, which) {
   b.using = which;
-  const h = b.model.userData.hand;
-  while (h.children.length) h.remove(h.children[0]);
   const it = which === 'gun' && b.gun ? ITEM[b.gun.id] : ITEM[b.melee];
-  const w = weaponModel(it); w.rotation.x = -Math.PI / 2; h.add(w);
+  b.model.userData.setHeld(it, weaponModel);
 }
 const botItem = (b) => b.using === 'gun' && b.gun ? ITEM[b.gun.id] : ITEM[b.melee];
 
@@ -621,6 +633,7 @@ function updateBot(b, dt) {
     const t = b.target, it = botItem(b);
     const dx = t.pos.x - b.pos.x, dz = t.pos.z - b.pos.z, dist = Math.hypot(dx, dz);
     b.yaw = lerpAngle(b.yaw, Math.atan2(-dx, -dz), 0.35);
+    b.aimPitch = Math.atan2((t.pos.y - b.pos.y) + (t.downed ? -1.2 : 0), Math.max(1, dist));
     b.seeT += dt;
     if (isGun(it)) {
       const want = it.type === 'shotgun' ? 8 : it.type === 'sniper' ? 40 : it.type === 'pistol' ? 15 : 20;
@@ -697,22 +710,20 @@ function botLoot(b, o) {
 }
 function poseBot(b, dt) {
   const m = b.model, u = m.userData;
-  m.position.copy(b.pos); m.rotation.y = b.yaw;
-  if (b.downed || b.dead) {
-    m.rotation.x = -Math.PI / 2 + 0.05; m.position.y = b.pos.y + 0.22;
-    u.legL.rotation.x = 0; u.legR.rotation.x = 0; u.armR.rotation.x = b.downed ? Math.sin(G.time * 3) * 0.4 + 2.6 : 2.8; u.armL.rotation.x = 2.8;
-    return;
-  }
-  m.rotation.x = 0;
-  const s = Math.sin(b.walkPh) * Math.min(1, Math.hypot(b.vel.x, b.vel.z) / 4) * 0.8;
-  u.legL.rotation.x = s; u.legR.rotation.x = -s;
-  u.armL.rotation.x = -s * 0.7;
+  m.position.copy(b.pos); m.rotation.set(0, b.yaw, 0);
+  const sp = Math.hypot(b.vel.x, b.vel.z);
+  if (b.downed || b.dead) { u.play('die', 0.15); u.mixer.update(dt); if (b.downed) m.position.y += 0.02; return; }
+  u.play(sp > 8 ? 'sprint' : sp > 0.6 ? 'walk' : 'idle');
+  u.mixer.update(dt * (sp > 0.6 && sp <= 8 ? Math.max(0.7, sp / 4.5) : 1));
   b.anim = (b.anim || 0) - dt;
-  const it = botItem(b);
-  if (b.state === 'fight' && isGun(it)) { u.armR.rotation.x = Math.PI / 2 + (b.anim > 0 ? 0.15 : 0); u.armL.rotation.x = Math.PI / 2.4; u.armL.rotation.z = -0.5; }
-  else { u.armL.rotation.z = 0; u.armR.rotation.x = b.anim > 0 ? 2.2 - b.anim * 6 : s * 0.7 + (b.state === 'fight' ? 0.6 : 0); }
-  const th = P.thermal && P.armor.eyes;
-  for (const c of [u.torso, u.head]) c.material = th ? lam(0xff6a20, 0xff4a10) : c.userData.orig || (c.userData.orig = c.material);
+  const it = botItem(b), pr = u.parts, aR = pr['arm-right'], aL = pr['arm-left'];
+  if (!aR) return;
+  if (isGun(it) && (b.state === 'fight' || b.aiming)) {
+    const pitch = b.aimPitch || 0;
+    aR.rotation.set(-Math.PI / 2 - pitch + (b.anim > 0 ? 0.12 : 0), 0.08, 0);
+    if (aL) aL.rotation.set(-Math.PI / 2 - pitch + 0.1, it.type === 'pistol' ? -0.5 : -0.62, 0);
+  } else if (isGun(it)) aR.rotation.set(-0.5, 0, 0);
+  else if (b.anim > 0) aR.rotation.set(-2.4 + b.anim * 8, 0, 0);
 }
 function botTarget() { return 22; }
 
@@ -729,10 +740,10 @@ function rayChar(o, d, maxT, shooter, zone) {
       if (t !== null && t < best) { best = t; hit = c; part = 'body'; }
       continue;
     }
-    const hy = p.y + (c.crouch ? 1.32 : 1.88);
+    const hy = p.y + (c.crouch ? HEAD_Y - 0.5 : HEAD_Y);
     const hc = new THREE.Vector3(p.x, hy, p.z).sub(o), tc = hc.dot(d);
     if (tc > 0 && tc < best) { const d2 = hc.lengthSq() - tc * tc; if (d2 < 0.27 * 0.27) { best = tc; hit = c; part = 'head'; } }
-    const t = rayBox(o, d, p.x - 0.38, p.y, p.z - 0.38, p.x + 0.38, p.y + (c.crouch ? 1.12 : 1.66), p.z + 0.38);
+    const t = rayBox(o, d, p.x - 0.38, p.y, p.z - 0.38, p.x + 0.38, p.y + (c.crouch ? HEAD_Y - 0.72 : HEAD_Y - 0.22), p.z + 0.38);
     if (t !== null && t < best) { best = t; hit = c; part = (o.y + d.y * t) - p.y < 0.85 ? 'limb' : 'body'; }
   }
   return { t: best, hit, part };
@@ -772,7 +783,7 @@ function puff(p, color = 0xaaaaaa, n = 4, sz = 0.08, up = 1) {
 function fireWeapon(shooter, o, dir, it) {
   sfx.gun(it, camDist(shooter));
   if (it.type !== 'launcher' || it.proj === 'flare') {
-    if (shooter === P && !G.thirdPerson() && vm.userData.w) { const tip = new THREE.Vector3(0, 0.03, it.type === 'pistol' ? -0.3 : it.type === 'smg' ? -0.5 : -0.95); vm.userData.w.localToWorld(tip); sprite(flashTex, tip, it.type === 'pistol' ? 0.16 : 0.24, 0.045, { scene: vmScene }); flashLight.position.copy(camera.position).addScaledVector(aimDir(), 1); flashLight.intensity = 30; flashT = 0.05; }
+    if (shooter === P && !G.thirdPerson() && vm.userData.w) { const tip = new THREE.Vector3(0, 0.03, vm.userData.w.userData.tipZ ?? (it.type === 'pistol' ? -0.3 : it.type === 'smg' ? -0.5 : -0.95)); vm.userData.w.localToWorld(tip); sprite(flashTex, tip, it.type === 'pistol' ? 0.16 : 0.24, 0.045, { scene: vmScene }); flashLight.position.copy(camera.position).addScaledVector(aimDir(), 1); flashLight.intensity = 30; flashT = 0.05; }
     else muzzleFlash(o.clone().addScaledVector(dir, 0.9), it.type === 'shotgun' ? 1.5 : 1);
   }
   if (shooter !== P && shooter.zone === P.zone) alertNear(shooter.pos, 25, shooter);
@@ -949,7 +960,7 @@ function kill(t, src, it, how) {
   if (t.gun && Math.random() < 0.55) dropItem({ ...t.gun, reserve: Math.min(t.gun.reserve, ITEM[t.gun.id].mag * 2) }, t.pos.x + rand(-1, 1), t.pos.y, t.pos.z + rand(-1, 1));
   if (Math.random() < 0.25) dropItem({ id: 'bandage', count: 1 }, t.pos.x + rand(-1, 1), t.pos.y, t.pos.z + rand(-1, 1));
   if (t.armor.vest && Math.random() < 0.3) dropItem({ id: t.armor.vest.id, dur: t.armor.vest.dur }, t.pos.x, t.pos.y, t.pos.z);
-  t.model.userData.hand.clear();
+  t.model.userData.setHeld(null);
 }
 function onPlayerDeath(src, it, how) {
   P.alive = false; G.save.stats.deaths++;
@@ -1407,7 +1418,7 @@ function updateLightPool(zone) {
 }
 
 // ---------- third person ----------
-const tpModel = makeCharacter(0x4a5566, 0x2a2c30, 0xe8b890, 0x1a1a1a); tpModel.visible = false; scene.add(tpModel);
+const tpModel = makeChar({ ...randomOutfit(), top: 'hoodie', head: 'balaclava', shirt: 0x2e3440, pants: 0x22252a, mask: 0x15161a, gloves: 0x151515, vest: null }); tpModel.visible = false; scene.add(tpModel);
 let tpHandItem = null;
 G.thirdPerson = () => !!G.save?.settings.tp;
 function viewOrigin() { return G.thirdPerson() ? eyeOf(P) : camera.position.clone(); }
@@ -1416,11 +1427,10 @@ function poseTP(dt) {
   tpModel.visible = tp;
   if (!tp) return;
   const it = vmItem || ITEM.fists;
-  if (tpHandItem !== it) { tpHandItem = it; const h = tpModel.userData.hand; h.clear(); const w = weaponModel(it); w.rotation.x = -Math.PI / 2; h.add(w); }
-  const fake = { model: tpModel, pos: P.pos, yaw: P.yaw, vel: P.vel, downed: P.downed, dead: false, walkPh: bob * 0.6, state: isGun(it) ? 'fight' : 'roam', anim: vmSwing > 0 ? 0.2 : 0, using: isGun(it) ? 'gun' : 'melee', gun: isGun(it) ? P.inv[P.eq] : null, melee: it.id };
+  if (tpHandItem !== it) { tpHandItem = it; tpModel.userData.setHeld(it, weaponModel); }
+  const fake = { model: tpModel, pos: P.pos, yaw: P.yaw, vel: P.vel, downed: P.downed, dead: false, state: 'roam', aiming: isGun(it), aimPitch: -P.pitch, anim: vmSwing > 0 ? 0.2 : 0, using: isGun(it) ? 'gun' : 'melee', gun: isGun(it) ? P.inv[P.eq] : null, melee: it.id };
   poseBot(fake, dt);
-  tpModel.scale.y = P.crouch ? 0.72 : 1;
-  if (isGun(it)) tpModel.userData.armR.rotation.x = Math.PI / 2 + P.pitch * 0.8;
+  tpModel.scale.y = P.crouch ? 0.75 : 1;
 }
 function placeTPCamera() {
   const eye = eyeOf(P), d = aimDir();
@@ -1599,6 +1609,7 @@ function frame(now) {
   if (G.state === 'play') updatePlayer(simDt);
   for (let i = G.bots.length - 1; i >= 0; i--) updateBot(G.bots[i], simDt);
   updateProjectiles(simDt); updateFires(simDt);
+  for (const n of npcs) n.userData.mixer.update(dt);
   for (let i = tracers.length - 1; i >= 0; i--) { const t = tracers[i]; t.t -= dt; t.l.material.opacity = Math.max(0, t.t / 0.06) * 0.8; if (t.t <= 0) { scene.remove(t.l); t.l.geometry.dispose(); tracers.splice(i, 1); } }
   for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.t -= dt; s.v.y -= 9 * dt; s.m.position.addScaledVector(s.v, dt); if (s.t <= 0) { scene.remove(s.m); sparks.splice(i, 1); } }
 
@@ -1632,7 +1643,7 @@ function frame(now) {
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
     // viewmodel
     const base = vm.userData.base || new THREE.Vector3(0.2, -0.2, -0.42);
-    const adsPos = new THREE.Vector3(0, -0.115, ['rifle', 'sniper', 'shotgun', 'launcher'].includes(it.type) ? -0.5 : -0.34);
+    const adsPos = new THREE.Vector3(0, -0.075, ['rifle', 'sniper', 'shotgun', 'launcher'].includes(it.type) ? -0.42 : -0.34);
     vmKick *= Math.pow(0.001, dt);
     vm.position.lerpVectors(base, adsPos, P.ads);
     vm.position.y += Math.sin(bob) * 0.012 * (1 - P.ads) - (P.reloadT > 0 ? 0.15 : 0) - (P.using ? 0.1 : 0);

@@ -4,10 +4,11 @@ import { getTex, TEXMAP } from './tex.js';
 export class Builder {
   constructor(scene) { this.scene = scene; this.buckets = new Map(); this.colliders = []; }
   mat(key, color, opts = {}) {
-    if (!this.buckets.has(key)) this.buckets.set(key, { color, opts, pos: [], nor: [], col: [], uv: [], ts: (TEXMAP[key] || [0, 2])[1] });
+    if (!this.buckets.has(key)) this.buckets.set(key, { color, opts, pos: [], nor: [], col: [], uv: [], ts: opts.ts || (TEXMAP[key] || [0, 2])[1] });
     return key;
   }
   box(key, x, y, z, w, h, d, o = {}) {
+    if (o.invisible) { this.colliders.push({ min: [x - w / 2, y, z - d / 2], max: [x + w / 2, y + h, z + d / 2], zone: o.zone || 'surface' }); return; }
     const b = this.buckets.get(key);
     const hw = w / 2, hd = d / 2;
     const x0 = x - hw, x1 = x + hw, y0 = y, y1 = y + h, z0 = z - hd, z1 = z + hd;
@@ -39,10 +40,10 @@ export class Builder {
       g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
       g.computeBoundingSphere();
-      const { offset, ...mo } = b.opts;
+      const { offset, material, ts, ...mo } = b.opts;
       const tk = TEXMAP[key];
-      const m = new THREE.MeshLambertMaterial({ vertexColors: true, map: tk ? getTex(tk[0]) : null, ...mo });
-      if (offset) { m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = -2; }
+      const m = material || new THREE.MeshLambertMaterial({ vertexColors: true, map: tk ? getTex(tk[0]) : null, ...mo });
+      if (offset && !material) { m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = -2; }
       const mesh = new THREE.Mesh(g, m);
       mesh.matrixAutoUpdate = false;
       mesh.castShadow = !mo.emissive && !mo.transparent && key !== 'line';
