@@ -1,0 +1,4 @@
+LAWLESS asset credits
+- City kit, street props, cars, trees, guns pack: Quaternius (CC0)
+- Scanned props, melee weapons, bolt rifle, service pistol, sky HDRI, surface textures: Poly Haven (CC0)
+- Desert Eagle model: OpenGameArt.org (CC0)

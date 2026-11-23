@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { ITEMS, ITEM, isGun, isMeleeish, CODES, BOT_NAMES, ALLOWANCE, ALLOWANCE_SEC, START_BANK, MAX_BOUNTY, xpForLevel, levelReward, unlockPrice } from './data.js';
 import { Physics, NavGrid, Sfx, rand, randi, pick, clamp, fmt } from './engine.js';
 import { buildWorld, ZONES, zoneOfY, EDGE } from './world.js';
-import { loadAssets, Instancer, size as kitSize, gunModel } from './assets.js';
+import { loadAssets, Instancer, size as kitSize, gunModel, loadPBR, pbrMat, upgradeKit } from './assets.js';
 import { makeChar, HEAD_Y, randomOutfit } from './chars.js';
 import { RoomEnvironment } from './pp/environments/RoomEnvironment.js';
+import { RGBELoader } from './pp/loaders/RGBELoader.js';
+import { clone as kitClone } from './assets.js';
 import * as UI from './ui.js';
 import { EffectComposer } from './pp/postprocessing/EffectComposer.js';
 import { RenderPass } from './pp/postprocessing/RenderPass.js';
@@ -65,11 +67,18 @@ const sfx = G.sfx;
 
 const loadEl = document.querySelector('#loading span');
 const KITA = await loadAssets((f, n) => { if (loadEl) loadEl.textContent = 'LOADING ' + Math.round(f * 100) + '%'; });
+await loadPBR(renderer.capabilities.getMaxAnisotropy()); upgradeKit();
 if (loadEl) loadEl.textContent = 'BUILDING SECTOR-07...';
 await new Promise(r => setTimeout(r, 30));
-{ const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.6; vmScene.environment = scene.environment; }
+let HDR = null;
+{
+  const pm = new THREE.PMREMGenerator(renderer);
+  try { HDR = await new RGBELoader().loadAsync('./assets/sky.hdr'); HDR.mapping = THREE.EquirectangularReflectionMapping; scene.environment = pm.fromEquirectangular(HDR).texture; scene.environmentIntensity = 0.9; }
+  catch { scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.6; }
+  vmScene.environment = scene.environment; vmScene.environmentIntensity = 1.0;
+}
 const KI = new Instancer();
-const W = buildWorld(scene, { I: KI, mats: KITA.mats, size: kitSize });
+const W = buildWorld(scene, { I: KI, mats: KITA.mats, size: kitSize, pbr: pbrMat });
 KI.flush(scene);
 const phys = new Physics(W.colliders);
 G.W = W; G.phys = phys;
@@ -113,7 +122,7 @@ const bgeo = (w, h, d) => { const k = w + ',' + h + ',' + d; if (!boxGeoCache.ha
 function bx(parent, w, h, d, c, x, y, z, e) { const m = new THREE.Mesh(bgeo(w, h, d), lam(c, e)); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; }
 
 export function weaponModel(item) {
-  const gm = gunModel(item); if (gm) return gm;
+  const gm = gunModel(item); if (gm) { if (!isGun(item)) gm.userData.melee = true; return gm; }
   const g = new THREE.Group(), D = 0x34373c, S = 0x7a8088, Wd = 0x8a5e34;
   const wooden = ['mosin', 'sks', 'akm', 'tommy', 'doublebarrel', 'ithaca', 'r870'].includes(item.id);
   const T = item.type;
@@ -242,8 +251,8 @@ function buildInteractables() {
 
   for (const r of W.registers) {
     const g = new THREE.Group();
-    bx(g, 0.55, 0.28, 0.45, 0x2b2b2e, 0, 0.14, 0); bx(g, 0.3, 0.22, 0.05, 0x58d68d, 0, 0.42, 0.05, 0x1a6a3a);
-    const drawer = bx(g, 0.5, 0.1, 0.4, 0x3a3a3e, 0, 0.05, 0.0);
+    const cr = kitClone('CashRegister_01.gltf'); cr.scale.setScalar(0.85); cr.rotation.y = Math.PI; g.add(cr); cr.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    const drawer = new THREE.Group(); g.add(drawer);
     g.position.set(r.x, r.y, r.z); g.rotation.y = r.rot || 0; scene.add(g);
     const o = { kind: 'register', ref: r, x: r.x, y: r.y + 0.3, z: r.z, range: 2.6, open: false, t: 0, hits: 0, mesh: g, drawer, alarm: r.alarm, zone: r.zone, bld: r.bld,
       label: () => o.open ? 'Register (restocks in ' + mmss(o.t) + ')' : 'Cash Register — punch / crowbar it' };
@@ -487,7 +496,7 @@ function buildVM() {
       const fz = long ? -0.26 : vmItem.type === 'smg' ? -0.13 : -0.02;
       l.position.set(long ? -0.012 : -0.022, long ? -0.035 : -0.07, fz); l.rotation.set(0.25, long ? 0.55 : 0.4, 0); vm.add(l); vm.userData.l = l; vm.userData.lRest = l.position.clone();
       const sy = w.userData.sightY ?? 0.07;
-      vm.userData.base = long ? new THREE.Vector3(0.115, -0.13, -0.28) : vmItem.type === 'smg' ? new THREE.Vector3(0.12, -0.13, -0.3) : new THREE.Vector3(0.13, -0.12, -0.3);
+      vm.userData.base = long ? new THREE.Vector3(0.115, -0.13, -0.28) : vmItem.type === 'smg' ? new THREE.Vector3(0.12, -0.13, -0.3) : new THREE.Vector3(0.1, -0.105, -0.36);
       vm.userData.ads = new THREE.Vector3(0, -sy - 0.002, long ? -0.2 : vmItem.type === 'smg' ? -0.22 : -0.26);
     } else {
       if (isMeleeish(vmItem)) w.rotation.x = 0.9;
@@ -533,23 +542,22 @@ function animateVM(dt, it) {
     rz += bell * 0.55; rx += bell * 0.25; vm.position.y -= bell * 0.03;
     if (parts.mag?.userData.rest) {
       const out = sm(0.12, 0.35) - sm(0.5, 0.72);
-      parts.mag.position.copy(parts.mag.userData.rest); parts.mag.position.y -= out * 0.35; parts.mag.position.x -= out * 0.05;
+      parts.mag.position.copy(parts.mag.userData.rest).addScaledVector(parts.mag.userData.down, out * 0.35).addScaledVector(parts.mag.userData.back, out * 0.05);
       parts.mag.visible = !(re > 0.36 && re < 0.48);
       if (u.l && u.lRest) { u.l.position.copy(u.lRest); u.l.position.y -= (sm(0.05, 0.3) - sm(0.55, 0.78)) * 0.12; u.l.position.z += (sm(0.05, 0.3) - sm(0.55, 0.78)) * (u.lRest.z < -0.1 ? 0.2 : 0.05); }
     }
     if (parts.cyl) parts.cyl.rotation.x += dt * 12 * bell;
     const pull = sm(0.78, 0.86) - sm(0.86, 0.96);
-    if (parts.bolt?.userData.rest) { parts.bolt.position.copy(parts.bolt.userData.rest); parts.bolt.position.x -= pull * 0.07; }
-    if (parts.slide?.userData.rest) { parts.slide.position.copy(parts.slide.userData.rest); parts.slide.position.x -= (re < 0.8 ? 0.03 : pull * 0.03); }
-    if (parts.pump?.userData.rest) { parts.pump.position.copy(parts.pump.userData.rest); parts.pump.position.x -= pull * 0.09; }
+    const mv = (pt, d) => { if (pt?.userData.rest) pt.position.copy(pt.userData.rest).addScaledVector(pt.userData.back, d); };
+    mv(parts.bolt, pull * 0.07); mv(parts.slide, re < 0.8 ? 0.03 : pull * 0.03); mv(parts.pump, pull * 0.09);
   } else {
     if (parts.mag?.userData.rest) { parts.mag.position.copy(parts.mag.userData.rest); parts.mag.visible = true; }
     if (u.l && u.lRest) u.l.position.copy(u.lRest);
     const cyc = cycleT > 0 ? Math.sin((1 - cycleT / 0.55) * Math.PI) : 0;
-    if (parts.slide?.userData.rest) { parts.slide.position.copy(parts.slide.userData.rest); parts.slide.position.x -= recoilAnim * 0.028; }
-    if (parts.bolt?.userData.rest) { parts.bolt.position.copy(parts.bolt.userData.rest); parts.bolt.position.x -= recoilAnim * 0.04 + cyc * 0.08; if (it.bolt) parts.bolt.rotation.x = -cyc * 1.1; }
-    if (parts.pump?.userData.rest) { parts.pump.position.copy(parts.pump.userData.rest); parts.pump.position.x -= cyc * 0.09; if (u.l && u.lRest) u.l.position.z = u.lRest.z + cyc * 0.09; }
-    if (parts.hammer) parts.hammer.rotation.z = 0.3 + recoilAnim * 0.4;
+    const mv = (pt, d) => { if (pt?.userData.rest) pt.position.copy(pt.userData.rest).addScaledVector(pt.userData.back, d); };
+    mv(parts.slide, recoilAnim * 0.028); mv(parts.bolt, recoilAnim * 0.04 + cyc * 0.08); mv(parts.pump, cyc * 0.09);
+    if (parts.pump && u.l && u.lRest) u.l.position.z = u.lRest.z + cyc * 0.09;
+    if (parts.hammer && !parts.hammer.userData.back?.x) parts.hammer.rotation.z = 0.3 + recoilAnim * 0.4;
     if (cyc > 0) { rz += cyc * 0.15; rx += cyc * 0.08; }
   }
   vm.rotation.set(rx, ry, rz);
@@ -1685,9 +1693,10 @@ function frame(now) {
 
   const zone = G.state === 'play' ? P.zone : 'surface';
   const under = zone !== 'surface';
-  scene.background.lerp(under ? UNDER : SKY, 0.2); scene.fog.color.copy(zone === 'sewer' ? new THREE.Color(0x0e140f) : zone === 'subway' ? new THREE.Color(0x101512) : zone === 'vibe' ? new THREE.Color(0x120a14) : scene.background);
+  if (HDR && !under) { scene.background = HDR; scene.backgroundIntensity = 0.32; scene.backgroundBlurriness = 0.0; } else { if (!scene.background?.isColor) scene.background = UNDER.clone(); scene.background.lerp(under ? UNDER : SKY, 0.2); }
+  scene.fog.color.copy(zone === 'sewer' ? new THREE.Color(0x0e140f) : zone === 'subway' ? new THREE.Color(0x101512) : zone === 'vibe' ? new THREE.Color(0x120a14) : SKY);
   scene.fog.density = under ? (zone === 'sewer' ? 0.035 : 0.028) : 0.011 * 420 / Math.max(200, G.save.settings.view);
-  sky.visible = !under;
+  sky.visible = !under && !HDR;
   hemi.intensity = under ? (zone === 'vibe' ? 0.9 : 0.7) : 1.6; hemi.color.setHex(under ? 0xa8c0b0 : 0xb4c0d4);
   sun.intensity = under ? 0 : 1.1; skyMat.uniforms.time.value = G.time; sun.castShadow = !under;
   pLight.intensity = under ? 6 : 0; updateLightPool(zone); vibeL1.intensity = vibeL2.intensity = zone === 'vibe' ? 160 : 0;

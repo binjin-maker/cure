@@ -63,7 +63,9 @@ export function buildWorld(scene, KIT) {
     trackZone: null, objects: [], under: {}, lights: [], trees: [], bags: [], papers: [], wires: [], poles: [],
   };
   B.mat('road', 0x55565a); B.mat('lot', 0x86898c); B.mat('dirt', 0x7e6c58); B.mat('court', 0xa85a3c); B.mat('line', 0x9a9682, { offset: true });
-  B.mat('concrete', 0xa3a5a6); B.mat('brick', 0xa0573f); B.mat('brick2', 0x7d6052); B.mat('plaster', 0xc9bba0); B.mat('dark', 0x4a4a50);
+  B.mat('concrete', 0xa3a5a6); B.mat('dark', 0x4a4a50);
+  const pm = (k, id, ts, c) => { const m = KIT.pbr?.(id, { color: c }); if (m) B.mat(k, 0xffffff, { material: m, ts }); else B.mat(k, c); };
+  pm('brick', 'red_bricks_04', 2.5, 0xffffff); pm('brick2', 'dark_brick_wall', 1.05, 0xd0c0b0); pm('plaster', 'painted_plaster_wall', 2, 0xe0d8c8); pm('shutter', 'rusty_metal_shutter', 2.4, 0xc8c8c8); pm('tile', 'dirty_tiles', 1.5, 0xffffff); pm('subtile', 'dirty_tiles', 1.5, 0xc8e0c8); pm('sewerwall', 'dark_brick_wall', 1.05, 0x7a7a70); pm('grate', 'metal_plate', 1.5, 0x888888);
   B.mat('metal', 0x7a848e); B.mat('rust', 0x9a6040); B.mat('wood', 0x9a7448); B.mat('roof', 0x56575c); B.mat('glass', 0x46584f, { emissive: 0x0e1a16, emissiveIntensity: 0.6 }); B.mat('glasslit', 0xd8b070, { emissive: 0xe0a050, emissiveIntensity: 0.75 });
   B.mat('wall', 0x8e9092); B.mat('rock', 0x6e6860); B.mat('trim', 0x3a3a3e); B.mat('container', 0x3a6e94); B.mat('container2', 0xa8482f);
   B.mat('container3', 0x5e8448); B.mat('sewer', 0x6a705e); B.mat('sewerwall', 0x6a6458); B.mat('tile', 0xcfc8b6); B.mat('rail', 0x6a5440);
@@ -87,8 +89,12 @@ export function buildWorld(scene, KIT) {
   const variants = new Map();
   const tintMat = (m, tint) => { const k = m.uuid + tint; if (!variants.has(k)) { const c = m.clone(); c.color = c.color.clone().multiply(new THREE.Color(tint)); variants.set(k, c); } return variants.get(k); };
   const kmat = (name, tint, ts) => { const m = tint ? tintMat(KM[name], tint) : KM[name]; return m; };
+  const PB = { road: ['asphalt_02', 3, 0xc8c8c8], walk: ['concrete_pavement', 1.8, 0xe0e0e0], lot: ['asphalt_02', 3, 0xa8a8a8], floorK: ['concrete_floor_worn_001', 2.5, 0xd8d4cc], slabK: ['smooth_concrete_floor', 3, 0xc8c8c8], roofK: ['concrete_floor_02', 3, 0x9a9a9a], concrete: ['concrete_wall_006', 2, 0xd8d8d8], brickK: ['red_brick_03', 1, 0xffffff] };
   for (const [k, mn, t, ts] of [['road', 'MI_Asphalt', 0xd0d0d0, 7], ['walk', 'MI_Concrete', 0xe8e8e8, 3], ['lot', 'MI_Asphalt', 0xb8b8b8, 8], ['floorK', 'MI_InteriorFloor', 0xffffff, 3], ['slabK', 'MI_Concrete', 0xc8c8c8, 4], ['roofK', 'MI_Concrete', 0x8a8a8a, 6], ['concrete', 'MI_Concrete', 0xd8d8d8, 3], ['brickK', 'MI_RedBrick', 0xffffff, 2], ['trimK', 'MI_Trim', 0xffffff, 2]]) {
-    B.buckets.delete(k); B.mat(k, 0xffffff, { material: kmat(mn, t), ts });
+    B.buckets.delete(k);
+    const pb = PB[k] && KIT.pbr?.(PB[k][0], { color: PB[k][2] });
+    if (pb) B.mat(k, 0xffffff, { material: pb, ts: PB[k][1] });
+    else B.mat(k, 0xffffff, { material: kmat(mn, t), ts });
   }
   const placeK = (name, x, y, z, ry = 0, s = 1, sy) => I.add(name, x, y, z, ry, s, sy);
   const ROT = { n: 0, s: Math.PI, w: Math.PI / 2, e: -Math.PI / 2 };
@@ -694,19 +700,38 @@ export function buildWorld(scene, KIT) {
     const x = rand(bx0 + 4, bx1 - 4), z = rand(bz0 + 4, bz1 - 4);
     if (free(x - 0.6, z - 0.6, x + 0.6, z + 0.6)) W.bags.push([x, 0.15, z, rand(0.9, 1.4)]);
   }
-  // alley clutter
-  B.mat('dumpster', 0x2f5a3a); B.mat('trash', 0x1e1e20);
-  for (let i = 0; i < 90; i++) {
+  // scanned props (Poly Haven)
+  const ph = (n, x, y, z, ry = 0, sc = 1) => placeK(n + '.gltf', x, y, z, ry, sc);
+  const solidAt = (x, z, w, d, h) => B.box('wall', x, 0.15, z, w, h, d, { invisible: true });
+  for (let i = 0; i < 140; i++) {
     const [bx0, bx1] = pick(BLK), [bz0, bz1] = pick(BLK);
     const x = rand(bx0 + 4, bx1 - 4), z = rand(bz0 + 4, bz1 - 4);
     if (!free(x - 1.5, z - 1.5, x + 1.5, z + 1.5)) continue;
-    const k = Math.random();
-    if (k < 0.3) { B.box('dumpster', x, 0.15, z, 2.2, 1.3, 1.2); B.box('trash', x, 1.45, z, 2.3, 0.12, 1.3, { solid: false }); }
-    else if (k < 0.55) { for (let j = 0; j < 3; j++) B.box('trash', x + rand(-0.8, 0.8), 0.15, z + rand(-0.8, 0.8), rand(0.5, 0.8), rand(0.4, 0.6), rand(0.5, 0.8)); }
-    else if (k < 0.75) { B.box('rust', x, 0.15, z, 0.7, 1.0, 0.7); B.box('rust', x + 0.9, 0.15, z + 0.2, 0.7, 1.0, 0.7); }
-    else B.box('wood', x, 0.15, z, 1.2, 0.15 + randi(1, 4) * 0.15, 1.2);
+    const k = Math.random(), r = rand(0, 6.28);
+    if (k < 0.2) { ph('metal_trash_can', x, 0.15, z, randi(0, 3) * Math.PI / 2); solidAt(x, z, 1.9, 1.9, 1); for (let j = 0; j < randi(1, 3); j++) ph('trashbag', x + rand(-1.4, 1.4), 0.15, z + rand(-1.4, 1.4), rand(0, 6), rand(0.9, 1.3)); }
+    else if (k < 0.35) { for (let j = 0; j < randi(2, 5); j++) ph(pick(['cardboard_box_01', 'cardboard_box_01', 'plastic_crate_01', 'plastic_crate_02']), x + rand(-0.8, 0.8), 0.15 + (j > 2 ? 0.34 : 0), z + rand(-0.8, 0.8), rand(0, 6)); }
+    else if (k < 0.5) { ph(pick(['Barrel_01', 'Barrel_02', 'barrel_03']), x, 0.15, z, r); if (Math.random() < 0.6) ph(pick(['Barrel_01', 'barrel_03']), x + 0.7, 0.15, z + 0.2, r); solidAt(x + 0.3, z, 1.4, 0.8, 1); }
+    else if (k < 0.62) { ph(pick(['wooden_crate_01', 'wooden_crate_02', 'wooden_military_crate']), x, 0.15, z, r); solidAt(x, z, 1, 1, 0.5); }
+    else if (k < 0.72) { for (let j = 0; j < randi(1, 3); j++) ph('old_tyre', x + rand(-0.5, 0.5), 0.15 + j * 0.16, z + rand(-0.5, 0.5), rand(0, 6)); }
+    else if (k < 0.8) { ph(pick(['metal_jerrycan', 'propane_tank', 'portable_generator', 'power_box_01']), x, 0.15, z, r); }
+    else if (k < 0.88) { ph('covered_car', x, 0.15, z, randi(0, 3) * Math.PI / 2); solidAt(x, z, 4.4, 4.4, 1.4); }
+    else { for (let j = 0; j < randi(2, 5); j++) ph('trashbag', x + rand(-1, 1), 0.15, z + rand(-1, 1), rand(0, 6), rand(0.9, 1.3)); if (Math.random() < 0.4) ph('street_rat', x + rand(-1, 1), 0.15, z + rand(-1, 1), rand(0, 6), 5); }
     reserved.push([x - 1.5, z - 1.5, x + 1.5, z + 1.5]);
   }
+  for (const [x, y, z, sc] of W.bags) for (let j = 0; j < randi(1, 3); j++) ph('trashbag', x + rand(-0.5, 0.5), y, z + rand(-0.5, 0.5), rand(0, 6), sc * rand(0.85, 1.15));
+  W.bags = [];
+  for (const rx of ROADS) for (const rz of ROADS) for (const [dx, dz] of [[-8.2, -10], [8.2, 10], [10, -8.2], [-10, 8.2]]) if (Math.random() < 0.5 && free(rx + dx - 0.5, rz + dz - 0.5, rx + dx + 0.5, rz + dz + 0.5)) ph('fire_hydrant', rx + dx, 0.15, rz + dz, rand(0, 6), 1);
+  for (const b of W.buildings.filter(b => b.filler)) {
+    if (Math.random() < 0.35) { const side = randi(0, 3), t = rand(0.2, 0.8); const [x, z, ry] = side === 0 ? [b.x0 + (b.x1 - b.x0) * t, b.z0 - 0.45, Math.PI] : side === 1 ? [b.x0 + (b.x1 - b.x0) * t, b.z1 + 0.45, 0] : side === 2 ? [b.x0 - 0.45, b.z0 + (b.z1 - b.z0) * t, -Math.PI / 2] : [b.x1 + 0.45, b.z0 + (b.z1 - b.z0) * t, Math.PI / 2]; if (free(x - 0.6, z - 0.6, x + 0.6, z + 0.6)) ph(pick(['utility_box_01', 'utility_box_02', 'power_box_01']), x, 0.15, z, ry); }
+    if (Math.random() < 0.3) { const [x, z, ry] = [b.x1 + 0.2, b.z1 + 0.2, Math.PI / 4]; ph('security_camera_01', x, 4.2, z, ry); }
+  }
+  for (let i = 0; i < 18; i++) { const r = pick(ROADS), t = rand(-150, 150); if (ROADS.some(rr => Math.abs(t - rr) < 14)) continue; const v = Math.random() < 0.5, x = v ? r + rand(-3, 3) : t, z = v ? t : r + rand(-3, 3); ph(pick(['concrete_road_barrier', 'concrete_road_barrier_02']), x, 0.0, z, v ? 0 : Math.PI / 2); B.box('wall', x, 0, z, v ? 1.6 : 0.7, 1.1, v ? 0.7 : 1.6, { invisible: true }); }
+  for (let i = 0; i < 4; i++) ph('portable_generator', -78 + i * 6, 0.15, -122, rand(0, 6));
+  for (const [ax, az] of [[56, -21], [68, -21], [88, 64], [88, 72]]) { ph('wooden_military_crate', ax, 0.27, az, 0); ph('ammo_box', ax + 0.4, 0.73, az, 0.3); ph('medical_box', ax - 0.3, 0.73, az, 0); }
+  ph('metal_tool_chest', 134, 0.27, -86, Math.PI / 2); ph('portable_generator', 150, 0.27, -76, 0.5);
+  ph('BarberShopChair_01', -25, 0.27, -86, Math.PI / 2); ph('BarberShopChair_01', -25, 0.27, -90, Math.PI / 2);
+  ph('WetFloorSign_01', 2, 0.27, -57, 0.4); ph('WetFloorSign_01', -6, 0.27, -18, 1.2);
+  for (let i = 0; i < 6; i++) ph('mounted_fluorescent_lights', -38 + i * 15, -6.05, 12, 0, 1.4);
 
   B.finish();
   W.colliders = B.colliders;

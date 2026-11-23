@@ -466,7 +466,7 @@ export function detailedGun(id) {
   const lookup = (o) => o ? dstList[srcList.indexOf(o)] : null;
   const p = src.userData.parts;
   c.userData = { tipZ: src.userData.tipZ, sightY: src.userData.sightY, mag: lookup(p.mag), bolt: lookup(p.bolt), slide: lookup(p.slide), pump: lookup(p.pump), hammer: lookup(p.hammer), cyl: lookup(p.cyl) };
-  for (const k of ['mag', 'bolt', 'slide', 'pump', 'hammer', 'cyl']) if (c.userData[k]) c.userData[k].userData.rest = c.userData[k].position.clone();
+  for (const k of ['mag', 'bolt', 'slide', 'pump', 'hammer', 'cyl']) if (c.userData[k]) { const u = c.userData[k].userData; u.rest = c.userData[k].position.clone(); u.back = new THREE.Vector3(-1, 0, 0); u.down = new THREE.Vector3(0, -1, 0); }
   return c;
 }
 export const ejectsShell = (id) => !['magnum', 'doublebarrel', 'rpg', 'm320', 'bfg'].includes(id);
