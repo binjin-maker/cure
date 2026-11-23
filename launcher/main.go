@@ -22,7 +22,7 @@ import (
 const (
 	Repo          = "binjin-maker/cure"
 	Branch        = "main"
-	LauncherBuild = 1
+	LauncherBuild = 2
 	Port          = "47823"
 	PollEvery     = 15 * time.Second
 )
@@ -50,7 +50,7 @@ func main() {
 	if lf != nil {
 		log.SetOutput(lf)
 	}
-	log.Printf("Cure launcher build %d", LauncherBuild)
+	log.Printf("Lawless launcher build %d", LauncherBuild)
 	if exe, err := os.Executable(); err == nil {
 		os.Remove(exe + ".old")
 	}
@@ -204,7 +204,7 @@ func selfUpdate(sha string) bool {
 	if n <= LauncherBuild {
 		return false
 	}
-	bin, err := raw(sha, "CureLauncher.ex_")
+	bin, err := raw(sha, "LawlessLauncher.ex_")
 	if err != nil || len(bin) < 100000 {
 		return false
 	}
@@ -364,7 +364,7 @@ func openBrowser(url string, track bool) {
 func fail(ln net.Listener, msg string) {
 	go http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<body style="background:#111;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh"><div><h1 style="color:#e0453c">CURE</h1><p>%s</p></div></body>`, msg)
+		fmt.Fprintf(w, `<body style="background:#111;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh"><div><h1 style="color:#eceae6">LAWLESS</h1><p>%s</p></div></body>`, msg)
 	}))
 	openBrowser("http://127.0.0.1:"+Port+"/", true)
 	time.Sleep(5 * time.Second)

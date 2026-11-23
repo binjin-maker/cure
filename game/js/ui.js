@@ -49,17 +49,18 @@ const on = (root, sel, ev, fn) => root.querySelectorAll(sel).forEach(el => el.ad
 const VIEWS = {
   main() {
     const s = G.save;
-    menu.innerHTML = `<div class="mainmenu">
-      <div class="title">CURE</div><div class="sub">SECTOR-07 · FREE-ROAM FIGHTING</div>
-      <button class="btn red" data-m="standard">PLAY — STANDARD<span class="mode">Bleed out when downed · more cash lost on death · XP from kills + allowance</span></button>
-      <button class="btn" data-m="casual">PLAY — CASUAL<span class="mode">Legacy downs (you recover) · less cash lost · XP only from allowance</span></button>
-      <button class="btn" data-v="store">STORE (PASSES)</button>
-      <button class="btn" data-v="settings">SETTINGS</button>
-      <button class="btn" data-v="controls">CONTROLS</button>
-      <button class="btn" data-v="guide">GUIDE / WIKI</button>
-      <div class="foot">Level ${s.level} · Bank ${fmt(s.bank)} · ${s.stats.kills} kills · ${s.stats.deaths} deaths · ${s.stats.safes} safes cracked<br>
-      ${s.session ? 'Saved loadout: ' + (s.session.inv?.length || 0) + ' items, ' + fmt(s.session.cash || 0) + ' cash<br>' : ''}
-      Build ${G.version} · auto-updates from GitHub</div></div>`;
+    menu.innerHTML = `<div class="mm">
+      <div class="glitch" data-t="LAWLESS">LAWLESS</div>
+      <div class="ver">BUILD ${G.version} · SECTOR-07</div>
+      <div class="mlist">
+        <button class="mi" data-m="standard"><i>&#9654;</i>PLAY<small>Standard — bleed out, more cash lost, XP from kills</small></button>
+        <button class="mi" data-m="casual"><i>&#9655;</i>PLAY CASUAL<small>Legacy downs, less cash lost, XP from allowance</small></button>
+        <button class="mi" data-v="store"><i>&#9635;</i>STORE</button>
+        <button class="mi" data-v="settings"><i>&#9881;</i>SETTINGS</button>
+        <button class="mi" data-v="controls"><i>&#9000;</i>CONTROLS</button>
+        <button class="mi" data-v="guide"><i>&#9776;</i>GUIDE</button>
+      </div>
+      <div class="mstat">LEVEL ${s.level} &nbsp;·&nbsp; BANK ${fmt(s.bank)} &nbsp;·&nbsp; ${s.stats.kills} KILLS &nbsp;·&nbsp; ${s.stats.safes} SAFES${s.session ? ' &nbsp;·&nbsp; LOADOUT SAVED' : ''}</div></div>`;
     on(menu, '[data-m]', 'click', (el) => G.startGame(el.dataset.m));
     on(menu, '[data-v]', 'click', (el) => open(el.dataset.v, 'main'));
   },

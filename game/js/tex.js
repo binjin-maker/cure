@@ -95,6 +95,11 @@ const GEN = {
   court(x, n) { x.fillStyle = '#d8a080'; x.fillRect(0, 0, n, n); noise(x, n, 30); blotches(x, n, 20, 30, 100, '90,40,20', 0.2); },
   chain(x, n) { x.fillStyle = '#b0b0b0'; x.fillRect(0, 0, n, n); x.strokeStyle = 'rgba(40,40,40,0.7)'; x.lineWidth = 3; for (let i = -n; i < n * 2; i += 32) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + n, n); x.moveTo(i + n, 0); x.lineTo(i, n); x.stroke(); } noise(x, n, 20); },
   sewer(x, n) { x.fillStyle = '#b8bcae'; x.fillRect(0, 0, n, n); blotches(x, n, 60, 15, 90, '50,70,40', 0.35); blotches(x, n, 30, 10, 60, '30,30,25', 0.35); noise(x, n, 50); x.strokeStyle = 'rgba(40,40,40,0.4)'; x.lineWidth = 2; x.strokeRect(1, 1, n - 2, n - 2); },
+  shutter(x, n) {
+    x.fillStyle = '#c2c4c4'; x.fillRect(0, 0, n, n);
+    for (let i = 0; i < n; i += 16) { const g = x.createLinearGradient(0, i, 0, i + 16); g.addColorStop(0, 'rgba(255,255,255,0.25)'); g.addColorStop(0.7, 'rgba(0,0,0,0.15)'); g.addColorStop(1, 'rgba(0,0,0,0.45)'); x.fillStyle = g; x.fillRect(0, i, n, 16); }
+    noise(x, n, 25); blotches(x, n, 14, 20, 80, '90,60,40', 0.25); blotches(x, n, 10, 10, 60, '20,20,20', 0.25);
+  },
   panel(x, n) { x.fillStyle = '#c8c8c8'; x.fillRect(0, 0, n, n); x.strokeStyle = 'rgba(30,30,30,0.6)'; x.lineWidth = 3; x.strokeRect(2, 2, n - 4, n - 4); x.strokeRect(n / 2, 2, 0.1, n); noise(x, n, 20); blotches(x, n, 10, 20, 70, '60,60,60', 0.2); },
 };
 export function getTex(kind) {
@@ -115,5 +120,5 @@ export const TEXMAP = {
   plaster: ['plaster', 4], metal: ['corrugated', 3], rust: ['rust', 4], wood: ['wood', 2], roof: ['roof', 6], wall: ['concrete', 6], rock: ['rock', 14],
   container: ['corrugated', 2.5], container2: ['corrugated', 2.5], container3: ['corrugated', 2.5], sewer: ['sewer', 4], sewerwall: ['brick', 2.5], tile: ['tile', 4],
   rail: ['wood', 2], grate: ['grate', 2], vibe: ['concrete', 4], fence: ['chain', 2], counter: ['wood', 1.5], trim: ['metal', 2], dark: ['concrete', 5],
-  carred: ['panel', 2], dumpster: ['corrugated', 1.5], trash: ['rust', 1], carblue: ['panel', 2], cargray: ['panel', 2], black: ['rust', 3], pizza: ['wood', 2],
+  carred: ['panel', 2], shutter: ['shutter', 3.2], stone: ['concrete', 2], brickgrey: ['brick', 3], brickdark: ['brick', 3], subtile: ['tile', 3], pole: ['wood', 1.5], frame: ['metal', 1], dumpster: ['corrugated', 1.5], trash: ['rust', 1], carblue: ['panel', 2], cargray: ['panel', 2], black: ['rust', 3], pizza: ['wood', 2],
 };

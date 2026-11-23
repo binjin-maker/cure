@@ -3,11 +3,15 @@ import { ITEMS, ITEM, isGun, isMeleeish, CODES, BOT_NAMES, ALLOWANCE, ALLOWANCE_
 import { Physics, NavGrid, Sfx, rand, randi, pick, clamp, fmt } from './engine.js';
 import { buildWorld, makeCharacter, ZONES, zoneOfY, EDGE } from './world.js';
 import * as UI from './ui.js';
+import { EffectComposer } from './pp/postprocessing/EffectComposer.js';
+import { RenderPass } from './pp/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from './pp/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from './pp/postprocessing/OutputPass.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
 renderer.autoClear = false;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.6;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(80, 1, 0.08, 900);
@@ -15,19 +19,29 @@ camera.rotation.order = 'YXZ';
 const vmScene = new THREE.Scene(), vmCam = new THREE.PerspectiveCamera(58, 1, 0.01, 10);
 vmScene.add(new THREE.HemisphereLight(0xfff4e8, 0x4a4440, 1.6));
 const vmSun = new THREE.DirectionalLight(0xffe2b8, 1.6); vmSun.position.set(1, 2, 1); vmScene.add(vmSun);
-const hemi = new THREE.HemisphereLight(0xa8b4cc, 0x55504a, 1.25); scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xb8c8ff, 1.5); scene.add(sun); scene.add(sun.target);
-const SUN_DIR = new THREE.Vector3(-0.45, 0.7, 0.4).normalize();
+const hemi = new THREE.HemisphereLight(0xb4c0d4, 0x4a4844, 1.6); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xc8d4ec, 1.1); scene.add(sun); scene.add(sun.target);
+const SUN_DIR = new THREE.Vector3(-0.35, 0.8, 0.45).normalize();
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 500 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
-const SKY = new THREE.Color(0x4a515e), UNDER = new THREE.Color(0x07080a);
-scene.background = SKY.clone(); scene.fog = new THREE.Fog(SKY.getHex(), 30, 230);
+const SKY = new THREE.Color(0x5d6674), UNDER = new THREE.Color(0x07080a);
+scene.background = SKY.clone(); scene.fog = new THREE.FogExp2(SKY.getHex(), 0.011);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-  uniforms: { top: { value: new THREE.Color(0x1a1e26) }, mid: { value: new THREE.Color(0x343a46) }, hor: { value: SKY.clone() }, sunDir: { value: SUN_DIR } },
+  uniforms: { time: { value: 0 }, top: { value: new THREE.Color(0x3c4552) }, mid: { value: new THREE.Color(0x6a7380) }, hor: { value: SKY.clone() }, sunDir: { value: SUN_DIR } },
   vertexShader: 'varying vec3 vd; void main(){ vd = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = vec4(p.xy, p.w * 0.9999, p.w); }',
-  fragmentShader: 'uniform vec3 top; uniform vec3 mid; uniform vec3 hor; uniform vec3 sunDir; varying vec3 vd; void main(){ float h = vd.y; vec3 c = mix(hor, mid, smoothstep(-0.02, 0.18, h)); c = mix(c, top, smoothstep(0.18, 0.75, h)); float sd = max(dot(normalize(vd), sunDir), 0.0); c += vec3(0.85,0.9,1.0) * (step(0.9993, sd) * 1.6 + pow(sd, 30.0) * 0.12); float st = fract(sin(dot(floor(vd.xz / max(vd.y, 0.05) * 90.0), vec2(12.9898, 78.233))) * 43758.5453); c += vec3(0.7) * step(0.9975, st) * smoothstep(0.15, 0.5, h); gl_FragColor = vec4(c, 1.0); }',
+  fragmentShader: `uniform float time; uniform vec3 top; uniform vec3 mid; uniform vec3 hor; uniform vec3 sunDir; varying vec3 vd;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1,0)), f.x), mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y); }
+    float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 6; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+    void main(){ vec3 d = normalize(vd); float h = d.y; vec3 c = mix(hor, mid, smoothstep(-0.02, 0.25, h)); c = mix(c, top, smoothstep(0.25, 0.9, h));
+      vec2 uv = d.xz / max(h + 0.12, 0.05) * 1.4 + vec2(time * 0.004, time * 0.002);
+      float cl = fbm(uv); float cl2 = fbm(uv * 2.2 + 5.0);
+      c = mix(c, vec3(0.52, 0.56, 0.62), smoothstep(0.35, 0.75, cl) * 0.55 * smoothstep(-0.05, 0.2, h));
+      c = mix(c, vec3(0.24, 0.27, 0.32), smoothstep(0.55, 0.85, cl2) * 0.45 * smoothstep(0.0, 0.3, h));
+      float sd = max(dot(d, sunDir), 0.0); c += vec3(0.6, 0.65, 0.75) * pow(sd, 18.0) * 0.25;
+      gl_FragColor = vec4(c, 1.0); }`,
 });
 const sky = new THREE.Mesh(new THREE.SphereGeometry(800, 32, 16), skyMat); sky.frustumCulled = false; sky.renderOrder = -1; scene.add(sky);
 const pLight = new THREE.PointLight(0xffe8c8, 0, 16, 1.6); scene.add(pLight);
@@ -57,7 +71,7 @@ const navs = {
 };
 
 // ---------- save ----------
-const DEFAULT_SETTINGS = { lights: 8, tp: false, sens: 1, adsSens: 0.7, fov: 80, vol: 0.6, quality: 1, view: 420, fps: false, invertY: false, xhair: '#ffffff', names: true, bob: true };
+const DEFAULT_SETTINGS = { bloom: true, lights: 8, tp: false, sens: 1, adsSens: 0.7, fov: 80, vol: 0.6, quality: 1, view: 420, fps: false, invertY: false, xhair: '#ffffff', names: true, bob: true };
 function freshSave() {
   return { bank: START_BANK, level: 1, xp: 0, unlocked: [], passes: ['group'], codes: [], allowanceT: 0, settings: { ...DEFAULT_SETTINGS }, stats: { kills: 0, deaths: 0, downs: 0, safes: 0, registers: 0, earned: 0 }, session: null };
 }
@@ -94,7 +108,22 @@ export function weaponModel(item) {
   const T = item.type;
   if (T === 'pistol') { bx(g, 0.06, 0.09, 0.26, item.id === 'deagle' ? 0x9a9a9a : D, 0, 0.02, -0.1); bx(g, 0.05, 0.14, 0.07, D, 0, -0.08, -0.01); if (['deagle', 'magnum'].includes(item.id)) bx(g, 0.05, 0.05, 0.14, S, 0, 0.02, -0.29); if (item.id === 'tec9') bx(g, 0.04, 0.18, 0.04, S, 0, -0.1, -0.14); }
   else if (T === 'smg') { bx(g, 0.07, 0.1, 0.42, wooden ? Wd : D, 0, 0.02, -0.18); bx(g, 0.05, 0.16, 0.06, D, 0, -0.09, -0.05); bx(g, 0.04, 0.08, 0.14, S, 0, 0.03, -0.45); if (item.id === 'tommy') bx(g, 0.07, 0.2, 0.2, D, 0, -0.12, -0.22); else bx(g, 0.04, 0.17, 0.05, S, 0, -0.1, -0.2); }
-  else if (T === 'rifle' || T === 'sniper') { bx(g, 0.07, 0.1, 0.8, wooden ? Wd : D, 0, 0.02, -0.25); bx(g, 0.035, 0.035, 0.32, S, 0, 0.04, -0.8); bx(g, 0.06, 0.13, 0.24, wooden ? Wd : D, 0, -0.03, 0.2); bx(g, 0.05, 0.15, 0.06, D, 0, -0.1, -0.05); if (T === 'rifle' && !['sks', 'fal'].includes(item.id)) bx(g, 0.05, 0.18, 0.08, D, 0, -0.12, -0.2); if (item.scope) bx(g, 0.06, 0.06, 0.28, 0x111111, 0, 0.11, -0.2); }
+  else if (T === 'rifle' || T === 'sniper') {
+    const M = 0x2c2e31, WO = 0x6a4428, tan = ['scarh'].includes(item.id) ? 0x9a8a68 : M;
+    const ak = ['akm', 'aks74u', 'sks'].includes(item.id), bolt = item.bolt;
+    bx(g, 0.065, 0.085, 0.42, tan, 0, 0.02, -0.12);
+    bx(g, 0.05, 0.03, 0.4, 0x1c1d1f, 0, 0.075, -0.12);
+    bx(g, 0.06, 0.075, 0.3, ak || bolt ? WO : 0x232427, 0, 0.0, -0.46);
+    bx(g, 0.028, 0.028, 0.36, 0x18191a, 0, 0.03, -0.74);
+    bx(g, 0.03, 0.05, 0.03, 0x18191a, 0, 0.07, -0.86);
+    bx(g, 0.04, 0.03, 0.04, 0x101010, 0, 0.03, -0.93);
+    bx(g, 0.055, 0.12, 0.26, ak || bolt ? WO : 0x232427, 0, -0.03, 0.22);
+    bx(g, 0.05, 0.14, 0.06, ak || bolt ? WO : 0x1c1c1e, 0, -0.09, 0.05);
+    if (!bolt && item.id !== 'sks') { const mg = bx(g, 0.045, 0.2, 0.08, ak ? 0x2a2620 : 0x202124, 0, -0.13, -0.18); mg.rotation.x = ak ? -0.35 : -0.12; }
+    if (bolt) bx(g, 0.07, 0.015, 0.015, 0x888888, 0.05, 0.06, -0.02);
+    if (item.scope) { bx(g, 0.07, 0.07, 0.3, 0x111111, 0, 0.13, -0.14); bx(g, 0.08, 0.08, 0.05, 0x111111, 0, 0.13, -0.3); }
+    else if (!ak) bx(g, 0.03, 0.05, 0.05, 0x18191a, 0, 0.1, 0.02);
+  }
   else if (T === 'shotgun') { bx(g, 0.07, 0.09, item.id === 'supershorty' ? 0.45 : 0.85, wooden ? Wd : D, 0, 0.02, -0.3); bx(g, 0.04, 0.04, 0.5, S, 0, 0.06, -0.55); bx(g, 0.05, 0.15, 0.06, D, 0, -0.08, -0.05); if (item.id !== 'supershorty') bx(g, 0.06, 0.12, 0.24, Wd, 0, -0.03, 0.2); }
   else if (T === 'launcher') { const c = { firework: 0xc0392b, flaregun: 0xe67e22, bfg: 0x2ecc71, hallowslauncher: 0xe67e22 }[item.id] || 0x4a5a3a; bx(g, 0.14, 0.14, item.id === 'flaregun' ? 0.25 : 0.9, c, 0, 0.04, -0.25); bx(g, 0.05, 0.15, 0.06, D, 0, -0.08, -0.05); }
   else if (T === 'melee' || T === 'tool') {
@@ -445,7 +474,7 @@ function buildVM() {
 }
 
 // ---------- bots ----------
-const SHIRTS = [0x3a6ea5, 0x8a2a2a, 0x2a6a3a, 0x6a4a8a, 0xb0802a, 0x2a2a2a, 0xdddddd, 0x5a3a2a, 0x7a7a2a, 0x2a5a6a];
+const SHIRTS = [0x2a2c30, 0x1e1f22, 0x3a3f36, 0x4a3a30, 0x3a4250, 0x5a2a28, 0x2e3a2e, 0x55585c, 0x6a5a48, 0x24303c];
 let botId = 0;
 function botLoadout(level) {
   const guns = ITEMS.filter(i => isGun(i) && !i.rare && (i.lv || 1) <= level && i.type !== 'launcher');
@@ -471,6 +500,7 @@ function spawnBot(zone, at) {
   const level = Math.max(1, Math.round(Math.pow(Math.random(), 1.7) * 95) + (zone === 'vibe' ? 25 : 0));
   const lo = botLoadout(level);
   const model = makeCharacter(pick(SHIRTS), pick([0x1a1a1a, 0x2a3a5a, 0x3a3a3a, 0x4a3a2a]), pick([0xf2c99a, 0xc68c5a, 0x8d5a3a, 0xe8b896]), Math.random() < 0.4 ? pick([0x111111, 0x8a1010, 0x1a3a8a]) : undefined);
+  outfit(model);
   scene.add(model);
   const b = {
     id: ++botId, name: pick(BOT_NAMES) + (Math.random() < 0.5 ? randi(1, 99) : ''), level, skill: clamp(level / 100 + rand(-0.15, 0.25), 0.05, 1), zone,
@@ -484,6 +514,14 @@ function spawnBot(zone, at) {
   setBotWeapon(b, b.gun ? 'gun' : 'melee');
   G.bots.push(b);
   return b;
+}
+function outfit(model) {
+  const u = model.userData, r = Math.random();
+  const head = u.head;
+  if (r < 0.35) { const bal = bx(model, 0.42, 0.42, 0.42, pick([0x111214, 0x1c1e22, 0x2a2a2a]), 0, 1.88, 0); bx(model, 0.26, 0.09, 0.02, 0xd0a080, 0, 1.93, -0.212); }
+  else if (r < 0.55) { bx(model, 0.5, 0.22, 0.5, 0x3a3f36, 0, 2.06, 0); bx(model, 0.5, 0.34, 0.08, 0x3a3f36, 0, 1.86, 0.22); bx(model, 0.44, 0.06, 0.2, 0x2a2e28, 0, 1.95, -0.3); }
+  else if (r < 0.72) { bx(model, 0.52, 0.5, 0.5, pick([0x2a2c30, 0x3a2a24, 0x30363e]), 0, 1.92, 0.04); bx(model, 0.34, 0.3, 0.02, 0x0a0a0a, 0, 1.86, -0.215); }
+  if (Math.random() < 0.35) { bx(model, 0.7, 0.62, 0.42, pick([0x2a2e28, 0x1a1a1c, 0x3a3a34]), 0, 1.3, 0); }
 }
 function setBotWeapon(b, which) {
   b.using = which;
@@ -733,6 +771,10 @@ function puff(p, color = 0xaaaaaa, n = 4, sz = 0.08, up = 1) {
 
 function fireWeapon(shooter, o, dir, it) {
   sfx.gun(it, camDist(shooter));
+  if (it.type !== 'launcher' || it.proj === 'flare') {
+    if (shooter === P && !G.thirdPerson() && vm.userData.w) { const tip = new THREE.Vector3(0, 0.03, it.type === 'pistol' ? -0.3 : it.type === 'smg' ? -0.5 : -0.95); vm.userData.w.localToWorld(tip); sprite(flashTex, tip, it.type === 'pistol' ? 0.16 : 0.24, 0.045, { scene: vmScene }); flashLight.position.copy(camera.position).addScaledVector(aimDir(), 1); flashLight.intensity = 30; flashT = 0.05; }
+    else muzzleFlash(o.clone().addScaledVector(dir, 0.9), it.type === 'shotgun' ? 1.5 : 1);
+  }
   if (shooter !== P && shooter.zone === P.zone) alertNear(shooter.pos, 25, shooter);
   if (it.proj) { launch(shooter, o, dir, it); return; }
   for (let i = 0; i < (it.pellets || 1); i++) {
@@ -748,11 +790,11 @@ function fireWeapon(shooter, o, dir, it) {
       if (c.t > range * 0.4) dmg *= 1 - 0.5 * clamp((c.t - range * 0.4) / (range * 0.6), 0, 1);
       if (shooter.rageT > 0) dmg *= 1.15;
       hurt(c.hit, dmg, c.part, shooter, it);
-      puff(end, 0x8a1010, 3, 0.06);
+      impactFx(end, 3, true);
       if (shooter === P) { UI.hitmarker(c.part === 'head'); c.part === 'head' ? sfx.headshot() : sfx.hitmark(); }
       if (c.hit === P) UI.hurt(dmg);
     } else if (w.hit) {
-      puff(end, 0x999999, 2, 0.05);
+      impactFx(end, 3, false);
       if (shooter === P || camDist(shooter) < 40) decal(end, w.hit.axis, d);
     }
   }
@@ -806,7 +848,10 @@ function explode(p) {
   if (it.gas) { G.fires.push({ x: pos.x, y: pos.y, z: pos.z, r: it.radius, t: 12, gas: true, by: p.shooter, zone: p.zone }); puff(pos, 0xb8b860, 14, 0.4); sfx.burst(600, 1.2, 0.5, dist); return; }
   if (it.fire) { G.fires.push({ x: pos.x, y: pos.y, z: pos.z, r: it.radius, t: 8, by: p.shooter, zone: p.zone }); sfx.burst(800, 0.8, 0.6, dist); puff(pos, 0xffaa33, 14, 0.25); return; }
   sfx.explosion(dist);
-  puff(pos, 0xffaa33, 16, 0.3, 2); puff(pos, 0x333333, 10, 0.4, 2);
+  for (let i = 0; i < 6; i++) sprite(flashTex, pos.clone().add(new THREE.Vector3(rand(-1, 1), rand(0, 1.5), rand(-1, 1))), rand(2, 4), rand(0.15, 0.3));
+  for (let i = 0; i < 12; i++) sprite(smokeTex, pos.clone().add(new THREE.Vector3(rand(-1.5, 1.5), rand(0, 2), rand(-1.5, 1.5))), rand(1.5, 3), rand(1.5, 3), { additive: false, color: 0x3a3836, opacity: 0.7, grow: 0.6, vel: new THREE.Vector3(rand(-1, 1), rand(1, 2.5), rand(-1, 1)) });
+  for (let i = 0; i < 20; i++) sprite(sparkTex, pos.clone(), 0.12, rand(0.4, 1), { vel: new THREE.Vector3(rand(-9, 9), rand(2, 12), rand(-9, 9)), grav: 14 });
+  if (dist < 60) { flashLight.position.copy(pos).y += 1; flashLight.intensity = 400; flashLight.distance = 30; flashT = 0.12; }
   if (dist < 25 && P.alive) shake = Math.max(shake, (25 - dist) / 25 * 0.5);
   for (const c of allChars()) {
     if (c.dead || c.zone !== p.zone) continue;
@@ -1345,7 +1390,7 @@ function updateWorld(dt) {
 for (const L of W.lights) {
   if (!L.lamp && !L.inside && L.zone === 'surface') continue;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: L.c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }));
-  sp.position.set(L.x, L.y + (L.lamp ? 0.3 : 0.4), L.z); const k = L.small ? 1.2 : L.inside ? 1.6 : 2.6; sp.scale.set(k, k, 1); scene.add(sp);
+  sp.position.set(L.x, L.y + (L.lamp ? 0.3 : 0.4), L.z); const k = L.small ? 1.2 : L.inside ? 1.6 : L.zone !== 'surface' ? 0.9 : 2.6; sp.scale.set(k, k, 1); scene.add(sp);
 }
 let poolT = 0;
 function updateLightPool(zone) {
@@ -1357,7 +1402,7 @@ function updateLightPool(zone) {
     const L = cand[i]?.[0], l = pool[i];
     l.visible = i < n;
     if (!L) { l.intensity = 0; continue; }
-    l.position.set(L.x, L.y, L.z); l.color.setHex(L.c); l.intensity = L.i; l.distance = L.small ? 12 : L.inside ? 16 : 26;
+    l.position.set(L.x, L.y, L.z); l.color.setHex(L.c); l.intensity = L.zone === 'surface' ? L.i * 0.55 : L.i; l.distance = L.small ? 12 : L.inside ? 16 : 26;
   }
 }
 
@@ -1394,12 +1439,102 @@ function shotFrom() {
   return [eye, target.sub(eye).normalize()];
 }
 
+// ---------- post ----------
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.55, 0.6, 0.82);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------- street decor (instanced) ----------
+{
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  const inst = (geo, mat, list, fn, shadow = true) => {
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((it, i) => { fn(it, v, e, sc); q.setFromEuler(e); m4.compose(v, q, sc); im.setMatrixAt(i, m4); });
+    im.castShadow = shadow; im.receiveShadow = true; scene.add(im); return im;
+  };
+  const trunkGeo = new THREE.CylinderGeometry(0.12, 0.2, 4.6, 6); trunkGeo.translate(0, 2.3, 0);
+  inst(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x2a2420 }), W.trees, ([x, z, s], v, e, sc) => { v.set(x, 0.15, z); e.set(0, x * 3.1, 0); sc.set(s, s, s); });
+  const blobs = [];
+  for (const [x, z, s] of W.trees) for (let k = 0; k < 16; k++) blobs.push([x + rand(-1.8, 1.8) * s, rand(3.4, 6.6) * s, z + rand(-1.8, 1.8) * s, rand(0.6, 1.1) * s]);
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x3e5236, flatShading: true });
+  inst(new THREE.IcosahedronGeometry(1, 0), leafMat, blobs, ([x, y, z, s], v, e, sc) => { v.set(x, y, z); e.set(rand(0, 3), rand(0, 3), 0); sc.set(s, s * 0.75, s); });
+  const bagGeo = new THREE.IcosahedronGeometry(0.42, 1); bagGeo.translate(0, 0.32, 0);
+  const bagMat = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.32, metalness: 0.1 });
+  const bags = []; for (const [x, y, z, s] of W.bags) for (let k = 0; k < randi(2, 5); k++) bags.push([x + rand(-0.6, 0.6), y, z + rand(-0.6, 0.6), s * rand(0.7, 1.1)]);
+  inst(bagGeo, bagMat, bags, ([x, y, z, s], v, e, sc) => { v.set(x, y, z); e.set(rand(-0.2, 0.2), rand(0, 6), rand(-0.2, 0.2)); sc.set(s, s * rand(0.75, 1.05), s); });
+  const paperGeo = new THREE.PlaneGeometry(0.32, 0.42); paperGeo.rotateX(-Math.PI / 2);
+  const paperMat = new THREE.MeshLambertMaterial({ color: 0xc8c4b4, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, side: THREE.DoubleSide });
+  inst(paperGeo, paperMat, W.papers, ([x, y, z, r], v, e, sc) => { v.set(x, y, z); e.set(0, r, 0); sc.set(1, 1, 1); }, false);
+  const wpts = [];
+  for (const [a, b] of W.wires) { const n = 10; for (let i = 0; i < n; i++) { for (const t of [i / n, (i + 1) / n]) wpts.push(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - Math.sin(t * Math.PI) * 0.9, a[2] + (b[2] - a[2]) * t); } }
+  const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wpts, 3));
+  scene.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: 0x0c0c0d })));
+}
+
+// ---------- effects ----------
+const fxTex = (draw) => { const c = document.createElement('canvas'); c.width = c.height = 128; draw(c.getContext('2d')); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+const flashTex = fxTex((x) => {
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,230,1)'); g.addColorStop(0.2, 'rgba(255,200,90,0.9)'); g.addColorStop(0.5, 'rgba(255,120,30,0.3)'); g.addColorStop(1, 'rgba(255,90,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  x.strokeStyle = 'rgba(255,220,140,0.9)'; x.lineCap = 'round';
+  for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2 + Math.random() * 0.3, L = 30 + Math.random() * 32; x.lineWidth = 3 + Math.random() * 4; x.beginPath(); x.moveTo(64, 64); x.lineTo(64 + Math.cos(a) * L, 64 + Math.sin(a) * L); x.stroke(); }
+});
+const smokeTex = fxTex((x) => { for (let i = 0; i < 14; i++) { const px = 64 + rand(-22, 22), py = 64 + rand(-22, 22), r = rand(20, 40); const g = x.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, 'rgba(255,255,255,0.22)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); } });
+const sparkTex = fxTex((x) => { const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,240,200,1)'); g.addColorStop(0.3, 'rgba(255,170,60,0.8)'); g.addColorStop(1, 'rgba(255,100,0,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); });
+const fx = [];
+function sprite(tex, pos, size, life, opts = {}) {
+  const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: opts.color ?? 0xffffff, transparent: true, depthWrite: false, blending: opts.additive === false ? THREE.NormalBlending : THREE.AdditiveBlending, opacity: opts.opacity ?? 1, rotation: rand(0, 6.28) }));
+  m.position.copy(pos); m.scale.setScalar(size); (opts.scene || scene).add(m);
+  fx.push({ m, life, max: life, vel: opts.vel || null, grow: opts.grow || 0, grav: opts.grav || 0, sc: opts.scene || scene, op: opts.opacity ?? 1 });
+}
+const flashLight = new THREE.PointLight(0xffb060, 0, 14, 1.6); scene.add(flashLight);
+let flashT = 0;
+function muzzleFlash(pos, big = 1) {
+  sprite(flashTex, pos, 0.55 * big + rand(0, 0.25), 0.045);
+  sprite(smokeTex, pos, 0.4, 0.6, { additive: false, color: 0x9a9a9a, opacity: 0.35, grow: 1.4, vel: new THREE.Vector3(rand(-0.3, 0.3), 0.6, rand(-0.3, 0.3)) });
+  if (pos.distanceTo(camera.position) < 40) { flashLight.position.copy(pos); flashLight.intensity = 40 * big; flashT = 0.05; }
+}
+function impactFx(p, n, blood) {
+  if (blood) { for (let i = 0; i < 4; i++) sprite(smokeTex, p, 0.25, 0.35, { additive: false, color: 0x6a0a0a, opacity: 0.8, grow: 0.8, vel: new THREE.Vector3(rand(-1, 1), rand(0, 1.5), rand(-1, 1)), grav: 4 }); return; }
+  for (let i = 0; i < 5; i++) sprite(sparkTex, p, 0.07, rand(0.15, 0.35), { vel: new THREE.Vector3(rand(-3, 3), rand(0.5, 4), rand(-3, 3)), grav: 12 });
+  sprite(smokeTex, p, 0.3, 0.8, { additive: false, color: 0xa09a90, opacity: 0.45, grow: 1.2, vel: new THREE.Vector3(0, 0.3, 0) });
+}
+function updateFx(dt) {
+  flashT -= dt; if (flashT <= 0) flashLight.intensity = 0;
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const f = fx[i]; f.life -= dt;
+    if (f.vel) { f.vel.y -= f.grav * dt; f.m.position.addScaledVector(f.vel, dt); }
+    if (f.grow) f.m.scale.multiplyScalar(1 + f.grow * dt);
+    f.m.material.opacity = f.op * Math.max(0, f.life / f.max);
+    if (f.life <= 0) { f.sc.remove(f.m); f.m.material.dispose(); fx.splice(i, 1); }
+  }
+}
+const dust = (() => {
+  const n = 500, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { pos[i * 3] = rand(-20, 20); pos[i * 3 + 1] = rand(-3, 10); pos[i * 3 + 2] = rand(-20, 20); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({ map: sparkTex, size: 0.06, color: 0xd8d0c0, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
+  p.frustumCulled = false; scene.add(p); return p;
+})();
+function updateDust(dt) {
+  const a = dust.geometry.attributes.position, c = camera.position;
+  for (let i = 0; i < a.count; i++) {
+    let x = a.getX(i) + Math.sin(G.time * 0.3 + i) * dt * 0.15, y = a.getY(i) - dt * 0.08, z = a.getZ(i) + dt * 0.12;
+    if (x - c.x > 20) x -= 40; if (x - c.x < -20) x += 40; if (z - c.z > 20) z -= 40; if (z - c.z < -20) z += 40; if (y - c.y < -3) y += 13; if (y - c.y > 10) y -= 13;
+    a.setXYZ(i, x, y, z);
+  }
+  a.needsUpdate = true;
+}
+
 // ---------- main ----------
 function resize() {
   const q = G.save?.settings.quality ?? 1;
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * q);
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = vmCam.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); vmCam.updateProjectionMatrix();
+  if (typeof composer !== 'undefined') { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
 }
 addEventListener('resize', resize);
 G.applySettings = () => { const s = G.save.settings; sfx.setVol(s.vol); resize(); scene.fog.far = s.view; camera.far = s.view + 80; camera.updateProjectionMatrix(); };
@@ -1436,6 +1571,7 @@ G.startGame = (mode) => {
 };
 G.toMenu = () => { save(); G.state = 'menu'; unlock(); UI.showHUD(false); UI.open('main'); };
 G.botsList = () => G.bots;
+G.dbg = { fire: () => { mouseL = true; P.fireT = 0; } };
 
 async function checkUpdate() {
   try {
@@ -1468,12 +1604,12 @@ function frame(now) {
 
   const zone = G.state === 'play' ? P.zone : 'surface';
   const under = zone !== 'surface';
-  scene.background.lerp(under ? UNDER : SKY, 0.2); scene.fog.color.copy(zone === 'sewer' ? new THREE.Color(0x0c120c) : zone === 'vibe' ? new THREE.Color(0x120a14) : scene.background);
-  scene.fog.near = under ? 10 : 30; scene.fog.far = under ? (zone === 'sewer' ? 60 : 80) : Math.min(G.save.settings.view, 230);
+  scene.background.lerp(under ? UNDER : SKY, 0.2); scene.fog.color.copy(zone === 'sewer' ? new THREE.Color(0x0e140f) : zone === 'subway' ? new THREE.Color(0x101512) : zone === 'vibe' ? new THREE.Color(0x120a14) : scene.background);
+  scene.fog.density = under ? (zone === 'sewer' ? 0.035 : 0.028) : 0.011 * 420 / Math.max(200, G.save.settings.view);
   sky.visible = !under;
-  hemi.intensity = under ? (zone === 'vibe' ? 0.9 : 0.75) : 1.25; hemi.color.setHex(under ? 0xb0b8c8 : 0xa8b4cc);
-  sun.intensity = under ? 0 : 1.5; sun.castShadow = !under;
-  pLight.intensity = under ? 10 : 2.5; updateLightPool(zone); vibeL1.intensity = vibeL2.intensity = zone === 'vibe' ? 160 : 0;
+  hemi.intensity = under ? (zone === 'vibe' ? 0.9 : 0.7) : 1.6; hemi.color.setHex(under ? 0xa8c0b0 : 0xb4c0d4);
+  sun.intensity = under ? 0 : 1.1; skyMat.uniforms.time.value = G.time; sun.castShadow = !under;
+  pLight.intensity = under ? 6 : 0; updateLightPool(zone); vibeL1.intensity = vibeL2.intensity = zone === 'vibe' ? 160 : 0;
   {
     const c = camera.position, texel = 180 / 2048;
     const fx = Math.round(c.x / texel) * texel, fz = Math.round(c.z / texel) * texel;
@@ -1515,14 +1651,15 @@ function frame(now) {
     UI.tags(G.bots, camera);
     saveTimer -= dt; if (saveTimer <= 0) { saveTimer = 15; save(); }
   } else {
-    menuAng += dt * 0.04;
-    camera.position.set(Math.sin(menuAng) * 120, 55, Math.cos(menuAng) * 120);
-    camera.lookAt(0, 0, 0);
-    camera.fov = 60; camera.updateProjectionMatrix();
+    menuAng += dt;
+    camera.position.set(-30 + Math.sin(menuAng * 0.05) * 6, 1.9, -36 + Math.sin(menuAng * 0.03) * 2);
+    camera.rotation.set(0.04 + Math.sin(menuAng * 0.2) * 0.01, 1.15 + Math.sin(menuAng * 0.06) * 0.25, 0);
+    if (camera.fov !== 62) { camera.fov = 62; camera.updateProjectionMatrix(); }
     vm.visible = false; tpModel.visible = false;
   }
+  updateFx(dt); updateDust(dt);
   renderer.clear();
-  renderer.render(scene, camera);
+  if (G.save.settings.bloom !== false) composer.render(dt); else renderer.render(scene, camera);
   if (G.state === 'play' && vm.visible) { renderer.clearDepth(); renderer.render(vmScene, vmCam); }
 }
 
