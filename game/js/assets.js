@@ -24,8 +24,9 @@ export async function loadAssets(onProgress) {
   const decal = mats.MI_StreetDecals;
   if (decal) { decal.polygonOffset = true; decal.polygonOffsetFactor = -4; decal.polygonOffsetUnits = -4; decal.depthWrite = false; }
   for (const m of Object.values(mats)) if (m.isMeshStandardMaterial) m.envMapIntensity = 0.55;
-  if (mats.MI_Glass) { mats.MI_Glass.envMapIntensity = 1.4; mats.MI_Glass.roughness = 0.08; mats.MI_Glass.metalness = 0.2; }
-  for (const k of ['MI_FakeInterior_2', 'MI_FakeInterior_3']) if (mats[k]) { mats[k].emissive = new THREE.Color(0xffffff); mats[k].emissiveMap = mats[k].map; mats[k].emissiveIntensity = 0.12; mats[k].color.multiplyScalar(0.55); }
+  if (mats.MI_Glass) { mats.MI_Glass.envMapIntensity = 0.3; mats.MI_Glass.roughness = 0.12; mats.MI_Glass.metalness = 0.1; mats.MI_Glass.color.multiplyScalar(0.45); }
+  if (mats.MI_FakeInterior) { mats.MI_FakeInterior.color.setHex(0x1c1e22); mats.MI_FakeInterior.roughness = 0.9; mats.MI_FakeInterior.envMapIntensity = 0.2; }
+  for (const k of ['MI_FakeInterior_2', 'MI_FakeInterior_3', 'MI_FakeInterior_4']) if (mats[k]) { mats[k].emissive = new THREE.Color(0xffffff); mats[k].emissiveMap = mats[k].map; mats[k].emissiveIntensity = 0.06; mats[k].color.multiplyScalar(0.4); }
   return A;
 }
 

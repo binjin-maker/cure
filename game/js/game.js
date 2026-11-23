@@ -16,7 +16,7 @@ import { OutputPass } from './pp/postprocessing/OutputPass.js';
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
 renderer.autoClear = false;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.82;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(80, 1, 0.08, 900);
@@ -24,17 +24,17 @@ camera.rotation.order = 'YXZ';
 const vmScene = new THREE.Scene(), vmCam = new THREE.PerspectiveCamera(58, 1, 0.01, 10);
 vmScene.add(new THREE.HemisphereLight(0xfff4e8, 0x4a4440, 1.6));
 const vmSun = new THREE.DirectionalLight(0xffe2b8, 1.6); vmSun.position.set(1, 2, 1); vmScene.add(vmSun);
-const hemi = new THREE.HemisphereLight(0xb4c0d4, 0x4a4844, 1.6); scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xc8d4ec, 1.1); scene.add(sun); scene.add(sun.target);
+const hemi = new THREE.HemisphereLight(0x8a98ae, 0x2a2826, 1.05); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xa8b8d4, 0.55); scene.add(sun); scene.add(sun.target);
 const SUN_DIR = new THREE.Vector3(-0.35, 0.8, 0.45).normalize();
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 500 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
-const SKY = new THREE.Color(0x5d6674), UNDER = new THREE.Color(0x07080a);
-scene.background = SKY.clone(); scene.fog = new THREE.FogExp2(SKY.getHex(), 0.011);
+const SKY = new THREE.Color(0x3a414c), UNDER = new THREE.Color(0x07080a);
+scene.background = SKY.clone(); scene.fog = new THREE.FogExp2(SKY.getHex(), 0.017);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-  uniforms: { time: { value: 0 }, top: { value: new THREE.Color(0x3c4552) }, mid: { value: new THREE.Color(0x6a7380) }, hor: { value: SKY.clone() }, sunDir: { value: SUN_DIR } },
+  uniforms: { time: { value: 0 }, top: { value: new THREE.Color(0x1e242c) }, mid: { value: new THREE.Color(0x3a424e) }, hor: { value: SKY.clone() }, sunDir: { value: SUN_DIR } },
   vertexShader: 'varying vec3 vd; void main(){ vd = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = vec4(p.xy, p.w * 0.9999, p.w); }',
   fragmentShader: `uniform float time; uniform vec3 top; uniform vec3 mid; uniform vec3 hor; uniform vec3 sunDir; varying vec3 vd;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -73,7 +73,7 @@ await new Promise(r => setTimeout(r, 30));
 let HDR = null;
 {
   const pm = new THREE.PMREMGenerator(renderer);
-  try { HDR = await new RGBELoader().loadAsync('./assets/sky.hdr'); HDR.mapping = THREE.EquirectangularReflectionMapping; scene.environment = pm.fromEquirectangular(HDR).texture; scene.environmentIntensity = 0.9; }
+  try { HDR = await new RGBELoader().loadAsync('./assets/sky.hdr'); HDR.mapping = THREE.EquirectangularReflectionMapping; scene.environment = pm.fromEquirectangular(HDR).texture; scene.environmentIntensity = 0.5; }
   catch { scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.6; }
   vmScene.environment = scene.environment; vmScene.environmentIntensity = 1.0;
 }
@@ -1693,12 +1693,12 @@ function frame(now) {
 
   const zone = G.state === 'play' ? P.zone : 'surface';
   const under = zone !== 'surface';
-  if (HDR && !under) { scene.background = HDR; scene.backgroundIntensity = 0.32; scene.backgroundBlurriness = 0.0; } else { if (!scene.background?.isColor) scene.background = UNDER.clone(); scene.background.lerp(under ? UNDER : SKY, 0.2); }
+  scene.background.lerp(under ? UNDER : SKY, 0.2);
   scene.fog.color.copy(zone === 'sewer' ? new THREE.Color(0x0e140f) : zone === 'subway' ? new THREE.Color(0x101512) : zone === 'vibe' ? new THREE.Color(0x120a14) : SKY);
   scene.fog.density = under ? (zone === 'sewer' ? 0.035 : 0.028) : 0.011 * 420 / Math.max(200, G.save.settings.view);
-  sky.visible = !under && !HDR;
-  hemi.intensity = under ? (zone === 'vibe' ? 0.9 : 0.7) : 1.6; hemi.color.setHex(under ? 0xa8c0b0 : 0xb4c0d4);
-  sun.intensity = under ? 0 : 1.1; skyMat.uniforms.time.value = G.time; sun.castShadow = !under;
+  sky.visible = !under;
+  hemi.intensity = under ? (zone === 'vibe' ? 0.9 : 0.7) : 1.05; hemi.color.setHex(under ? 0xa8c0b0 : 0x8a98ae);
+  sun.intensity = under ? 0 : 0.55; skyMat.uniforms.time.value = G.time; sun.castShadow = !under;
   pLight.intensity = under ? 6 : 0; updateLightPool(zone); vibeL1.intensity = vibeL2.intensity = zone === 'vibe' ? 160 : 0;
   {
     const c = camera.position, texel = 180 / 2048;
