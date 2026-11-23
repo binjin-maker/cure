@@ -469,23 +469,91 @@ const eyeOf = (c) => new THREE.Vector3(c.pos.x, c.pos.y + eyeH(c), c.pos.z);
 // ---------- viewmodel ----------
 let vm = new THREE.Group(); vmScene.add(vm);
 let vmItem = null, vmSwing = 0;
+const LONG = ['rifle', 'sniper', 'shotgun', 'launcher'];
 function buildVM() {
   vmScene.remove(vm); vm = new THREE.Group(); vmScene.add(vm);
   const e = P.inv[P.eq]; vmItem = e ? ITEM[e.id] : ITEM.fists;
   const skin = 0x151515, sleeve = 0x2e3440;
-  const arm = (x, rx) => { const a = new THREE.Group(); bx(a, 0.12, 0.12, 0.46, sleeve, 0, 0, 0.2); bx(a, 0.125, 0.125, 0.04, 0x252a33, 0, 0, -0.01); bx(a, 0.115, 0.115, 0.11, skin, 0, 0, -0.08); a.position.set(x, -0.05, 0); a.rotation.x = rx; return a; };
+  const arm = (len = 0.46) => { const a = new THREE.Group(); bx(a, 0.1, 0.1, len, sleeve, 0, 0, len / 2 - 0.02); bx(a, 0.106, 0.106, 0.035, 0x252a33, 0, 0, -0.01); bx(a, 0.095, 0.095, 0.1, skin, 0, 0, -0.07); return a; };
   if (vmItem.id === 'fists' || vmItem.id === 'knuckledusters') {
-    const l = arm(-0.18, 0.1), r = arm(0.18, 0.1); vm.add(l, r); vm.userData.l = l; vm.userData.r = r;
-    if (vmItem.id === 'knuckledusters') { bx(l, 0.11, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); bx(r, 0.11, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); }
+    const l = arm(), r = arm(); l.position.set(-0.18, -0.05, 0); r.position.set(0.18, -0.05, 0); l.rotation.x = r.rotation.x = 0.1; vm.add(l, r); vm.userData.l = l; vm.userData.r = r;
+    if (vmItem.id === 'knuckledusters') { bx(l, 0.1, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); bx(r, 0.1, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); }
+    vm.userData.base = new THREE.Vector3(0, -0.27, -0.4);
   } else {
-    const w = weaponModel(vmItem); vm.add(w); vm.userData.w = w; if (isGun(vmItem)) w.scale.setScalar(0.62);
-    const r = arm(0.0, 0); r.position.set(0.02, -0.12, 0.08); vm.add(r);
-    r.position.set(0.02, -0.08, 0.06); r.scale.setScalar(0.75);
-    if (isGun(vmItem)) { const l = arm(-0.06, -0.2); l.position.set(-0.06, -0.06, ['rifle', 'sniper', 'shotgun'].includes(vmItem.type) ? -0.2 : -0.04); l.rotation.y = 0.45; l.scale.setScalar(0.75); vm.add(l); }
-    if (isMeleeish(vmItem)) w.rotation.x = 0.9;
+    const w = weaponModel(vmItem); vm.add(w); vm.userData.w = w;
+    const r = arm(0.5); r.position.set(0.012, -0.075, 0.06); r.rotation.set(0.35, 0.1, 0); vm.add(r); vm.userData.r = r;
+    if (isGun(vmItem)) {
+      const long = LONG.includes(vmItem.type), l = arm(long ? 0.62 : 0.5);
+      const fz = long ? -0.26 : vmItem.type === 'smg' ? -0.13 : -0.02;
+      l.position.set(long ? -0.012 : -0.022, long ? -0.035 : -0.07, fz); l.rotation.set(0.25, long ? 0.55 : 0.4, 0); vm.add(l); vm.userData.l = l; vm.userData.lRest = l.position.clone();
+      const sy = w.userData.sightY ?? 0.07;
+      vm.userData.base = long ? new THREE.Vector3(0.115, -0.13, -0.28) : vmItem.type === 'smg' ? new THREE.Vector3(0.12, -0.13, -0.3) : new THREE.Vector3(0.13, -0.12, -0.3);
+      vm.userData.ads = new THREE.Vector3(0, -sy - 0.002, long ? -0.2 : vmItem.type === 'smg' ? -0.22 : -0.26);
+    } else {
+      if (isMeleeish(vmItem)) w.rotation.x = 0.9;
+      vm.userData.base = new THREE.Vector3(0.22, -0.24, -0.45);
+    }
   }
-  vm.userData.base = isGun(vmItem) ? (['rifle', 'sniper', 'shotgun', 'launcher'].includes(vmItem.type) ? new THREE.Vector3(0.2, -0.24, -0.62) : vmItem.type === 'smg' ? new THREE.Vector3(0.19, -0.22, -0.55) : new THREE.Vector3(0.17, -0.2, -0.48)) : vm.userData.l ? new THREE.Vector3(0, -0.27, -0.4) : new THREE.Vector3(0.22, -0.24, -0.45);
   vm.position.copy(vm.userData.base);
+  P.drawT = 0.35;
+}
+const shells = [];
+const shellGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.02, 8), shellMat = new THREE.MeshStandardMaterial({ color: 0xc8a040, metalness: 1, roughness: 0.3 });
+function ejectShell() {
+  const w = vm.userData.w; if (!w || !w.children[0]) return;
+  const p = new THREE.Vector3(0.06, 0.05, 0.02); w.children[0].localToWorld(p); vm.parent.worldToLocal(p);
+  const m = new THREE.Mesh(shellGeo, shellMat); m.position.copy(p); m.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3)); vmScene.add(m);
+  shells.push({ m, v: new THREE.Vector3(rand(0.9, 1.5), rand(0.9, 1.6), rand(0.1, 0.5)), s: new THREE.Vector3(rand(-20, 20), rand(-20, 20), rand(-20, 20)), t: 0.7 });
+}
+let recoilAnim = 0, cycleT = 0, swayX = 0, swayY = 0, lastYaw = 0, lastPitch = 0;
+function animateVM(dt, it) {
+  const u = vm.userData, w = u.w, parts = w?.userData || {};
+  const base = u.base || new THREE.Vector3(0.2, -0.2, -0.42), adsPos = u.ads || new THREE.Vector3(0, -0.075, -0.34);
+  P.drawT = Math.max(0, (P.drawT || 0) - dt);
+  recoilAnim = Math.max(0, recoilAnim - dt * 14);
+  cycleT = Math.max(0, cycleT - dt);
+  const dyaw = ((P.yaw - lastYaw + Math.PI) % (Math.PI * 2)) - Math.PI; lastYaw = P.yaw;
+  swayX += (clamp(-dyaw * 3, -0.06, 0.06) - swayX) * Math.min(1, dt * 10); swayY += (clamp((P.pitch - lastPitch) * 3, -0.06, 0.06) - swayY) * Math.min(1, dt * 10); lastPitch = P.pitch;
+  const sprinting = keys.ShiftLeft && keys.KeyW && P.ads < 0.3 && P.onGround && P.stamina > 1 && !P.reloadT;
+  u.sprint = (u.sprint || 0) + ((sprinting ? 1 : 0) - (u.sprint || 0)) * Math.min(1, dt * 8);
+  vmKick *= Math.pow(0.0005, dt);
+  const ads = P.ads * (1 - (u.sprint || 0));
+  vm.position.lerpVectors(base, adsPos, ads);
+  const speed = Math.hypot(P.vel.x, P.vel.z), bobAmt = Math.min(1, speed / 7) * (1 - ads * 0.85);
+  vm.position.x += Math.cos(bob * 0.5) * 0.012 * bobAmt + swayX * (1 - ads * 0.7);
+  vm.position.y += Math.sin(bob) * 0.01 * bobAmt + Math.sin(G.time * 1.6) * 0.0015 * (1 - ads) - swayY * 0.5;
+  vm.position.z += vmKick * (1 - ads * 0.5);
+  let rx = vmKick * 1.5 * (1 - ads * 0.6), ry = swayX * 2, rz = swayX * 3;
+  rx -= u.sprint * 0.35; ry += u.sprint * 0.9; vm.position.x -= u.sprint * 0.06; vm.position.y -= u.sprint * 0.05;
+  if (P.drawT > 0) { const k = P.drawT / 0.35; rx -= k * 1.2; vm.position.y -= k * 0.25; }
+  if (P.using) { vm.position.y -= 0.12; rx -= 0.4; }
+  const re = isGun(it) && P.reloadT > 0 ? 1 - P.reloadT / it.reload : -1;
+  if (re >= 0) {
+    const sm = (a, b) => clamp((re - a) / (b - a), 0, 1), bell = Math.sin(clamp(re, 0, 1) * Math.PI);
+    rz += bell * 0.55; rx += bell * 0.25; vm.position.y -= bell * 0.03;
+    if (parts.mag?.userData.rest) {
+      const out = sm(0.12, 0.35) - sm(0.5, 0.72);
+      parts.mag.position.copy(parts.mag.userData.rest); parts.mag.position.y -= out * 0.35; parts.mag.position.x -= out * 0.05;
+      parts.mag.visible = !(re > 0.36 && re < 0.48);
+      if (u.l && u.lRest) { u.l.position.copy(u.lRest); u.l.position.y -= (sm(0.05, 0.3) - sm(0.55, 0.78)) * 0.12; u.l.position.z += (sm(0.05, 0.3) - sm(0.55, 0.78)) * (u.lRest.z < -0.1 ? 0.2 : 0.05); }
+    }
+    if (parts.cyl) parts.cyl.rotation.x += dt * 12 * bell;
+    const pull = sm(0.78, 0.86) - sm(0.86, 0.96);
+    if (parts.bolt?.userData.rest) { parts.bolt.position.copy(parts.bolt.userData.rest); parts.bolt.position.x -= pull * 0.07; }
+    if (parts.slide?.userData.rest) { parts.slide.position.copy(parts.slide.userData.rest); parts.slide.position.x -= (re < 0.8 ? 0.03 : pull * 0.03); }
+    if (parts.pump?.userData.rest) { parts.pump.position.copy(parts.pump.userData.rest); parts.pump.position.x -= pull * 0.09; }
+  } else {
+    if (parts.mag?.userData.rest) { parts.mag.position.copy(parts.mag.userData.rest); parts.mag.visible = true; }
+    if (u.l && u.lRest) u.l.position.copy(u.lRest);
+    const cyc = cycleT > 0 ? Math.sin((1 - cycleT / 0.55) * Math.PI) : 0;
+    if (parts.slide?.userData.rest) { parts.slide.position.copy(parts.slide.userData.rest); parts.slide.position.x -= recoilAnim * 0.028; }
+    if (parts.bolt?.userData.rest) { parts.bolt.position.copy(parts.bolt.userData.rest); parts.bolt.position.x -= recoilAnim * 0.04 + cyc * 0.08; if (it.bolt) parts.bolt.rotation.x = -cyc * 1.1; }
+    if (parts.pump?.userData.rest) { parts.pump.position.copy(parts.pump.userData.rest); parts.pump.position.x -= cyc * 0.09; if (u.l && u.lRest) u.l.position.z = u.lRest.z + cyc * 0.09; }
+    if (parts.hammer) parts.hammer.rotation.z = 0.3 + recoilAnim * 0.4;
+    if (cyc > 0) { rz += cyc * 0.15; rx += cyc * 0.08; }
+  }
+  vm.rotation.set(rx, ry, rz);
+  for (let i = shells.length - 1; i >= 0; i--) { const sh = shells[i]; sh.t -= dt; sh.v.y -= 6 * dt; sh.m.position.addScaledVector(sh.v, dt); sh.m.rotation.x += sh.s.x * dt; sh.m.rotation.y += sh.s.y * dt; if (sh.t <= 0) { vmScene.remove(sh.m); shells.splice(i, 1); } }
 }
 
 // ---------- bots ----------
@@ -1148,7 +1216,9 @@ function playerAttack(dt) {
       fireWeapon(P, so, sd || d, it);
       const kick = it.recoil * (P.ads > 0.5 ? 0.7 : 1) * (P.crouch ? 0.75 : 1);
       P.pitch = clamp(P.pitch + kick, -1.55, 1.55); P.yaw += rand(-kick, kick) * 0.4; P.recoilP += kick;
-      vmKick = 0.06 + kick;
+      vmKick = 0.035 + kick * 0.8; recoilAnim = 1;
+      if (it.type !== 'launcher' && it.id !== 'magnum' && it.id !== 'doublebarrel' && !it.bolt && it.type !== 'shotgun') ejectShell();
+      if (it.bolt || (it.type === 'shotgun' && it.id !== 'doublebarrel')) { cycleT = 0.55; setTimeout(ejectShell, 250); P.fireT = Math.max(P.fireT, 0.6); }
       if (e.mag <= 0 && e.reserve > 0) setTimeout(tryReload, 250);
     }
   } else if (isMeleeish(it)) {
@@ -1581,7 +1651,7 @@ G.startGame = (mode) => {
 };
 G.toMenu = () => { save(); G.state = 'menu'; unlock(); UI.showHUD(false); UI.open('main'); };
 G.botsList = () => G.bots;
-G.dbg = { fire: () => { mouseL = true; P.fireT = 0; } };
+G.dbg = { fire: () => { mouseL = true; P.fireT = 0; }, reload: () => { const e = P.inv[P.eq]; e.mag = 0; tryReload(); }, equip: (id) => { G.giveItem(id); G.equip(P.inv.length - 1); } };
 
 async function checkUpdate() {
   try {
@@ -1642,14 +1712,7 @@ function frame(now) {
     const fov = G.save.settings.fov * (1 - P.ads * (it.scope ? 0.72 : 0.22));
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
     // viewmodel
-    const base = vm.userData.base || new THREE.Vector3(0.2, -0.2, -0.42);
-    const adsPos = new THREE.Vector3(0, -0.075, ['rifle', 'sniper', 'shotgun', 'launcher'].includes(it.type) ? -0.42 : -0.34);
-    vmKick *= Math.pow(0.001, dt);
-    vm.position.lerpVectors(base, adsPos, P.ads);
-    vm.position.y += Math.sin(bob) * 0.012 * (1 - P.ads) - (P.reloadT > 0 ? 0.15 : 0) - (P.using ? 0.1 : 0);
-    vm.position.x += Math.cos(bob * 0.5) * 0.01 * (1 - P.ads);
-    vm.position.z += vmKick;
-    vm.rotation.set(vmKick * 2 + (P.reloadT > 0 ? -0.6 : 0), 0, 0);
+    animateVM(dt, it);
     if (vmSwing > 0) {
       vmSwing = Math.max(0, vmSwing - dt * 4.5);
       const s = Math.sin(vmSwing * Math.PI);

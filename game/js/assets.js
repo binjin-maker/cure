@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './pp/loaders/GLTFLoader.js';
+import { detailedGun } from './guns3d.js';
 
 const lib = {};
 const mats = {};
@@ -87,6 +88,7 @@ const LEN = { pistol: 0.22, smg: 0.42, rifle: 0.86, shotgun: 0.92, sniper: 1.12 
 const gunCache = {};
 export function hasGun(id) { return !!GUN[id] && !!lib[GUN[id]]; }
 export function gunModel(item) {
+  const dg = detailedGun(item.id); if (dg) return dg;
   const key = GUN[item.id];
   if (!key || !lib[key]) return null;
   if (!gunCache[item.id]) {
