@@ -12,8 +12,23 @@ export async function loadAssets(onProgress) {
   let done = 0;
   await Promise.all(files.map(async (f) => {
     const g = await loader.loadAsync('./assets/' + f + '.glb');
-    for (const n of g.scene.children) lib[n.name] = n;
+    for (const n of g.scene.children) { lib[n.name] = n; if (n.userData?.name) lib[n.userData.name] = n; if (/gltf$/.test(n.name)) lib[n.name.slice(0, -4) + '.gltf'] = n; }
     if (f === 'char') A.anims = g.animations;
+    if (f === 'trees') for (const t of g.scene.children) {
+      const dead = /dead/.test(t.name);
+      t.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(t), H = bb.max.y - bb.min.y;
+      t.traverse(o => {
+        if (!o.isMesh) return;
+        o.geometry = o.geometry.clone(); const p = o.geometry.attributes.position, c = new Float32Array(p.count * 3), v = new THREE.Vector3(), col = new THREE.Color();
+        for (let i = 0; i < p.count; i++) {
+          v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); const h = (v.y - bb.min.y) / H, r = Math.abs(Math.sin(i * 12.9898) * 43758.5) % 1;
+          if (dead || h < 0.32) col.setHex(0x3b2d22).multiplyScalar(0.8 + r * 0.4); else col.setRGB(0.07 + r * 0.04, 0.1 + r * 0.05, 0.05 + r * 0.02);
+          c.set([col.r, col.g, col.b], i * 3);
+        }
+        o.geometry.setAttribute('color', new THREE.BufferAttribute(c, 3));
+        o.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, envMapIntensity: 0.3 });
+      });
+    }
     g.scene.traverse(o => {
       if (!o.isMesh) return;
       const ms = Array.isArray(o.material) ? o.material : [o.material];
@@ -48,7 +63,7 @@ export function clone(name) {
 export class Instancer {
   constructor() { this.groups = new Map(); }
   add(name, x, y, z, ry = 0, s = 1, sy) {
-    const n = lib[name]; if (!n) return;
+    const n = lib[name]; if (!n) { if (!Instancer.miss) Instancer.miss = new Set(); if (!Instancer.miss.has(name)) { Instancer.miss.add(name); console.warn('missing asset', name); } return; }
     const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry), new THREE.Vector3(s, sy ?? s, s));
     n.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(n.matrixWorld).invert();

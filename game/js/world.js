@@ -261,7 +261,7 @@ export function buildWorld(scene, KIT) {
   const props = [];
   const car = (x, z, rot) => {
     props.push([x, z, 4]);
-    const name = pick(['cars-normalcar1', 'cars-normalcar2', 'cars-suv', 'cars-taxi', 'cars-sportscar', 'cars-normalcar1', 'cars-cop', 'cars-sportscar2']);
+    const name = pick(['normalcar1', 'normalcar2', 'suv', 'taxi', 'sportscar', 'normalcar1', 'normalcar2', 'suv', 'sportscar2']);
     placeK(name, x, 0.0, z, rot + Math.PI / 2, 1.1);
     const ax = Math.abs(Math.cos(rot)) > 0.5;
     B.box('wall', x, 0, z, ax ? 4.3 : 1.9, 1.4, ax ? 1.9 : 4.3, { invisible: true });
@@ -678,7 +678,7 @@ export function buildWorld(scene, KIT) {
       const x = side < 2 ? bx0 + (bx1 - bx0) * along : side === 2 ? bx0 + 1.6 : bx1 - 1.6;
       const z = side >= 2 ? bz0 + (bz1 - bz0) * along : side === 0 ? bz0 + 1.6 : bz1 - 1.6;
       if (!free(x - 1.2, z - 1.2, x + 1.2, z + 1.2)) continue;
-      placeK(pick(['trees-tree-1', 'trees-tree-2', 'trees-tree-3', 'trees-tree-5', 'trees-deadtree-1', 'trees-deadtree-2', 'trees-deadtree-4', 'trees-tree-7']), x, 0.15, z, rand(0, 6.28), rand(1.1, 1.5)); B.collider(x - 0.22, 0.15, z - 0.22, x + 0.22, 4, z + 0.22);
+      placeK(pick(['tree-1', 'tree-2', 'tree-3', 'tree-5', 'deadtree-1', 'deadtree-2', 'deadtree-4', 'tree-7']), x, 0.15, z, rand(0, 6.28), rand(1.1, 1.5)); B.collider(x - 0.22, 0.15, z - 0.22, x + 0.22, 4, z + 0.22);
       placeK('sidewalk-planter', x, 0.15, z, 0);
       reserved.push([x - 1.5, z - 1.5, x + 1.5, z + 1.5]);
     }
@@ -708,6 +708,90 @@ export function buildWorld(scene, KIT) {
     const x = rand(bx0 + 4, bx1 - 4), z = rand(bz0 + 4, bz1 - 4);
     if (free(x - 0.6, z - 0.6, x + 0.6, z + 0.6)) W.bags.push([x, 0.15, z, rand(0.9, 1.4)]);
   }
+  // second pass: plug frontage gaps with narrow buildings
+  BLK.forEach(([bx0, bx1]) => BLK.forEach(([bz0, bz1]) => {
+    const ix0 = bx0 + SB + 0.6, ix1 = bx1 - SB - 0.6, iz0 = bz0 + SB + 0.6, iz1 = bz1 - SB - 0.6;
+    for (const side of ['n', 's', 'w', 'e']) {
+      const horiz = side === 'n' || side === 's', a0 = horiz ? ix0 : iz0, a1 = horiz ? ix1 : iz1;
+      for (let t = a0; t < a1 - 8; t += 2) {
+        const len = 2 * randi(4, 6), dep = 2 * randi(6, 9);
+        const r = side === 'n' ? [t, iz0, t + len, iz0 + dep] : side === 's' ? [t, iz1 - dep, t + len, iz1] : side === 'w' ? [ix0, t, ix0 + dep, t + len] : [ix1 - dep, t, ix1, t + len];
+        if (free(r[0] - 0.3, r[1] - 0.3, r[2] + 0.3, r[3] + 0.3)) { const m = fill(...r, side); if (m) t += (horiz ? m.x1 - m.x0 : m.z1 - m.z0); }
+      }
+    }
+  }));
+  // curbside parking
+  for (const r of ROADS) for (const sd of [-1, 1]) for (let t = -EDGE + 8; t < EDGE - 8; t += rand(6.2, 9)) {
+    if (ROADS.some(rr => Math.abs(t - rr) < 15) || Math.random() < 0.3) continue;
+    const off = r + sd * 4.55;
+    for (const vert of [true, false]) {
+      const x = vert ? off : t, z = vert ? t : off;
+      if (!free(x - 1.2, z - 1.2, x + 1.2, z + 1.2)) continue;
+      car(x, z, vert ? Math.PI / 2 + (sd > 0 ? 0 : Math.PI) : (sd > 0 ? Math.PI : 0));
+      reserved.push(vert ? [x - 1.1, z - 2.4, x + 1.1, z + 2.4] : [x - 2.4, z - 1.1, x + 2.4, z + 1.1]);
+    }
+  }
+  // puddles (glossy decals) on roads and walks
+  {
+    const pm = new THREE.MeshStandardMaterial({ color: 0x0c0e12, roughness: 0.04, metalness: 0.3, transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, depthWrite: false });
+    const pc = document.createElement('canvas'); pc.width = pc.height = 128; const px = pc.getContext('2d');
+    const gr = px.createRadialGradient(64, 64, 10, 64, 64, 62); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.7, 'rgba(255,255,255,.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    px.fillStyle = gr; for (let i = 0; i < 6; i++) { px.beginPath(); px.ellipse(64 + rand(-18, 18), 64 + rand(-18, 18), rand(24, 44), rand(18, 34), rand(0, 3), 0, 7); px.fill(); }
+    pm.alphaMap = new THREE.CanvasTexture(pc);
+    const g = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const N = 160, im = new THREE.InstancedMesh(g, pm, N), M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3();
+    let n = 0;
+    while (n < N) {
+      const r = pick(ROADS), t = rand(-EDGE, EDGE), v = Math.random() < 0.5, side = rand(-5.5, 5.5);
+      const x = v ? r + side : t, z = v ? t : r + side, sc = rand(1.5, 4.5);
+      Q.setFromAxisAngle(V.set(0, 1, 0), rand(0, 6.28));
+      M4.compose(V.set(x, 0.008, z), Q, new THREE.Vector3(sc, 1, sc * rand(0.5, 1))); im.setMatrixAt(n++, M4);
+    }
+    im.receiveShadow = true; im.renderOrder = 1; scene.add(im);
+  }
+  // graffiti on ground floors (procedural tags)
+  {
+    const tags = [];
+    const cols = ['#c8c8c8', '#d84040', '#3a7ad8', '#e0c040', '#40c070', '#e070c0', '#ffffff', '#111111'];
+    for (let i = 0; i < 10; i++) {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 256; const x = c.getContext('2d');
+      x.lineCap = x.lineJoin = 'round'; const col = pick(cols);
+      for (let s = 0; s < randi(2, 4); s++) {
+        x.strokeStyle = s === 0 ? pick(cols) : col; x.lineWidth = s === 0 ? rand(22, 30) : rand(9, 16);
+        x.beginPath(); let px = rand(40, 90), py = rand(90, 170); x.moveTo(px, py);
+        for (let k = 0; k < randi(6, 12); k++) { px += rand(20, 50); py = rand(60, 200); x.quadraticCurveTo(px - rand(10, 30), rand(40, 220), px, py); }
+        x.stroke();
+      }
+      x.fillStyle = col; for (let k = 0; k < 30; k++) { x.globalAlpha = rand(0.2, 0.7); x.beginPath(); x.arc(rand(20, 492), rand(20, 236), rand(1, 4), 0, 7); x.fill(); } x.globalAlpha = 1;
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      tags.push(new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, depthWrite: false }));
+    }
+    const gg = new THREE.PlaneGeometry(1, 0.5);
+    for (const b of W.buildings.filter(b => b.filler && Math.abs(b.x) < EDGE && Math.abs(b.z) < EDGE)) {
+      if (Math.random() < 0.45) continue;
+      const side = randi(0, 3), w = rand(2, 4.5);
+      const along = side < 2 ? rand(b.x0 + w / 2 + 0.6, b.x1 - w / 2 - 0.6) : rand(b.z0 + w / 2 + 0.6, b.z1 - w / 2 - 0.6);
+      if (!isFinite(along)) continue;
+      const m = new THREE.Mesh(gg, pick(tags)); m.scale.set(w, w, 1);
+      const y = 0.15 + rand(0.9, 1.6), off = 0.035;
+      if (side === 0) { m.position.set(along, y, b.z0 - off); m.rotation.y = Math.PI; }
+      else if (side === 1) { m.position.set(along, y, b.z1 + off); }
+      else if (side === 2) { m.position.set(b.x0 - off, y, along); m.rotation.y = -Math.PI / 2; }
+      else { m.position.set(b.x1 + off, y, along); m.rotation.y = Math.PI / 2; }
+      scene.add(m);
+    }
+  }
+  // street litter on curbs
+  for (let i = 0; i < 260; i++) {
+    const r = pick(ROADS), t = rand(-EDGE + 4, EDGE - 4), v = Math.random() < 0.5, sd = Math.random() < 0.5 ? -1 : 1;
+    const off = r + sd * rand(6.3, 8.2), x = v ? off : t, z = v ? t : off;
+    if (ROADS.some(rr => Math.abs(t - rr) < 8) || !free(x - 0.4, z - 0.4, x + 0.4, z + 0.4)) continue;
+    const k = Math.random();
+    if (k < 0.45) placeK('trashbag.gltf', x, 0.15, z, rand(0, 6), rand(0.9, 1.3));
+    else if (k < 0.7) placeK('cardboard_box_01.gltf', x, 0.15, z, rand(0, 6));
+    else W.papers.push([x, 0.162, z, rand(0, 6.28)]);
+  }
+
   // scanned props (Poly Haven)
   const ph = (n, x, y, z, ry = 0, sc = 1) => placeK(n + '.gltf', x, y, z, ry, sc);
   const solidAt = (x, z, w, d, h) => B.box('wall', x, 0.15, z, w, h, d, { invisible: true });
