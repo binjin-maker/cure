@@ -228,8 +228,10 @@ export class NavGrid {
   randomFree() { for (let i = 0; i < 200; i++) { const k = (Math.random() * this.block.length) | 0; if (!this.block[k]) return this.center(k); } return this.center(0); }
 }
 
+// real recorded sounds (CC0, Freesound) with synth fallback
+const SND = ['pistol', 'deagle', 'rifle', 'ak', 'shotgun', 'sniper', 'smg', 'launch', 'explosion', 'magout', 'magin', 'pump', 'bolt', 'dry', 'step1', 'step2', 'step3', 'step4', 'swing', 'punch', 'flesh', 'metal', 'register', 'coins', 'alarm', 'elevator', 'click', 'ricochet', 'lockpick', 'tail'];
 export class Sfx {
-  constructor() { this.ctx = null; this.vol = 0.6; }
+  constructor() { this.ctx = null; this.vol = 0.6; this.buf = {}; }
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -237,6 +239,7 @@ export class Sfx {
     const len = this.ctx.sampleRate;
     this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this.noise.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    for (const n of SND) fetch('./assets/snd/' + n + '.mp3').then(r => r.ok ? r.arrayBuffer() : null).then(a => a && this.ctx.decodeAudioData(a)).then(b => { if (b) this.buf[n] = b; }).catch(() => {});
   }
   setVol(v) { this.vol = v; if (this.master) this.master.gain.value = v; }
   out(dist = 0) {
@@ -244,6 +247,16 @@ export class Sfx {
     g.gain.value = Math.max(0, 1 - dist / 140) ** 1.6;
     g.connect(this.master);
     return g;
+  }
+  // play a recorded sample; far sounds get muffled and quieter
+  play(name, { dist = 0, vol = 1, rate = 1, jitter = 0.06, delay = 0, far = 300 } = {}) {
+    if (!this.ctx || !this.buf[name]) return false;
+    const t = this.ctx.currentTime + delay, s = this.ctx.createBufferSource(); s.buffer = this.buf[name];
+    s.playbackRate.value = rate * (1 + (Math.random() - 0.5) * jitter);
+    const g = this.ctx.createGain(); g.gain.value = vol * Math.max(0, 1 - dist / far) ** 1.3;
+    if (dist > 12) { const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.max(500, 16000 / (1 + dist / 25)); s.connect(f); f.connect(g); } else s.connect(g);
+    g.connect(this.master); s.start(t);
+    return true;
   }
   burst(freq, dur, gain, dist = 0, type = 'lowpass', q = 0.7) {
     if (!this.ctx) return;
@@ -261,27 +274,39 @@ export class Sfx {
     o.connect(g); g.connect(this.out(dist)); o.start(t); o.stop(t + dur + 0.05);
   }
   gun(item, dist = 0) {
-    const heavy = { pistol: 1, smg: 0.8, rifle: 1.4, shotgun: 1.8, sniper: 2, launcher: 1.2 }[item.type] || 1;
-    this.burst(1800 / heavy, 0.12 * heavy, 0.9, dist);
-    this.burst(400, 0.25 * heavy, 0.5 * heavy, dist);
-    this.tone(120 / heavy, 0.08, 0.3, 'sine', dist, -60);
+    const id = item.id, ty = item.type;
+    const name = id === 'deagle' || id === 'magnum' ? 'deagle' : /^ak|sks|fal|scar/.test(id) ? 'ak' : ty === 'rifle' ? 'rifle' : ty === 'smg' ? 'smg' : ty === 'shotgun' ? 'shotgun' : ty === 'sniper' ? 'sniper' : ty === 'launcher' ? 'launch' : 'pistol';
+    if (this.play(name, { dist, vol: 0.9, far: 400 })) { if (dist > 40) this.play('tail', { dist: dist * 0.5, vol: 0.5, far: 500 }); return; }
+    const heavy = { pistol: 1, smg: 0.8, rifle: 1.4, shotgun: 1.8, sniper: 2, launcher: 1.2 }[ty] || 1;
+    this.burst(1800 / heavy, 0.12 * heavy, 0.9, dist); this.burst(400, 0.25 * heavy, 0.5 * heavy, dist); this.tone(120 / heavy, 0.08, 0.3, 'sine', dist, -60);
   }
-  swing() { this.burst(900, 0.12, 0.25, 0, 'bandpass', 2); }
-  hit(dist = 0) { this.burst(300, 0.1, 0.6, dist); this.tone(90, 0.08, 0.3, 'sine', dist); }
-  headshot() { this.tone(1400, 0.08, 0.15, 'triangle'); this.burst(2500, 0.06, 0.3, 0, 'highpass'); }
-  hitmark() { this.tone(1800, 0.04, 0.12, 'square'); }
-  metal(dist = 0) { this.tone(600 + Math.random() * 300, 0.25, 0.25, 'triangle', dist, -200); this.burst(3000, 0.08, 0.3, dist, 'highpass'); }
-  explosion(dist = 0) { this.burst(200, 1.4, 1.2, dist); this.burst(900, 0.4, 0.8, dist); this.tone(50, 0.8, 0.6, 'sine', dist, -30); }
-  reload() { this.tone(400, 0.05, 0.12, 'square'); setTimeout(() => this.tone(300, 0.06, 0.12, 'square'), 180); }
-  cash() { this.tone(1300, 0.08, 0.15, 'triangle'); setTimeout(() => this.tone(1700, 0.12, 0.15, 'triangle'), 80); }
-  click() { this.tone(900, 0.03, 0.1, 'square'); }
-  denied() { this.tone(200, 0.15, 0.15, 'sawtooth'); }
-  step(dist = 0) { this.burst(500 + Math.random() * 300, 0.06, 0.12, dist); }
-  alarm(dist = 0) { for (let i = 0; i < 6; i++) setTimeout(() => this.tone(i % 2 ? 700 : 950, 0.25, 0.22, 'sawtooth', dist), i * 260); }
-  pick() { this.tone(1500, 0.03, 0.12, 'square'); }
+  swing() { this.play('swing', { vol: 0.6, jitter: 0.15 }) || this.burst(900, 0.12, 0.25, 0, 'bandpass', 2); }
+  hit(dist = 0) { this.play('punch', { dist, vol: 0.8, jitter: 0.15 }) || (this.burst(300, 0.1, 0.6, dist), this.tone(90, 0.08, 0.3, 'sine', dist)); }
+  flesh(dist = 0) { this.play('flesh', { dist, vol: 0.7, jitter: 0.15 }); }
+  ricochet(dist = 0) { this.play('ricochet', { dist, vol: 0.35, jitter: 0.25, far: 80 }); }
+  headshot() { this.play('flesh', { vol: 0.9, rate: 1.2 }) || (this.tone(1400, 0.08, 0.15, 'triangle'), this.burst(2500, 0.06, 0.3, 0, 'highpass')); }
+  hitmark() { this.tone(1800, 0.04, 0.08, 'square'); }
+  metal(dist = 0) { this.play('metal', { dist, vol: 0.6, jitter: 0.2, far: 100 }) || (this.tone(600 + Math.random() * 300, 0.25, 0.25, 'triangle', dist, -200), this.burst(3000, 0.08, 0.3, dist, 'highpass')); }
+  explosion(dist = 0) { this.play('explosion', { dist, vol: 1, far: 600 }) || (this.burst(200, 1.4, 1.2, dist), this.burst(900, 0.4, 0.8, dist), this.tone(50, 0.8, 0.6, 'sine', dist, -30)); }
+  reload(item) {
+    const ty = item?.type;
+    if (ty === 'shotgun' && this.play('pump', { vol: 0.7 })) return;
+    if (ty === 'sniper' && this.play('bolt', { vol: 0.7 })) return;
+    if (this.play('magout', { vol: 0.7 })) { this.play('magin', { vol: 0.8, delay: Math.min(1.2, (item?.reload || 1.6) * 0.55) }); return; }
+    this.tone(400, 0.05, 0.12, 'square'); setTimeout(() => this.tone(300, 0.06, 0.12, 'square'), 180);
+  }
+  cycle(item) { if (item?.type === 'shotgun') this.play('pump', { vol: 0.55, delay: 0.25 }); else if (item?.bolt) this.play('bolt', { vol: 0.55, delay: 0.3 }); }
+  dry() { this.play('dry', { vol: 0.6 }) || this.tone(900, 0.03, 0.1, 'square'); }
+  cash() { this.play('coins', { vol: 0.5, jitter: 0.1 }) || (this.tone(1300, 0.08, 0.15, 'triangle'), setTimeout(() => this.tone(1700, 0.12, 0.15, 'triangle'), 80)); }
+  click() { this.play('click', { vol: 0.4, jitter: 0.05 }) || this.tone(900, 0.03, 0.1, 'square'); }
+  denied() { this.tone(200, 0.15, 0.12, 'sawtooth'); }
+  step(dist = 0) { this.play('step' + (1 + ((Math.random() * 4) | 0)), { dist, vol: 0.35, jitter: 0.12, far: 40 }) || this.burst(500 + Math.random() * 300, 0.06, 0.12, dist); }
+  alarm(dist = 0) { this.play('alarm', { dist, vol: 0.6, jitter: 0, far: 200 }) || [0, 1, 2, 3, 4, 5].forEach(i => setTimeout(() => this.tone(i % 2 ? 700 : 950, 0.25, 0.22, 'sawtooth', dist), i * 260)); }
+  pick() { this.play('click', { vol: 0.3, rate: 1.3 }) || this.tone(1500, 0.03, 0.12, 'square'); }
+  lockpick() { this.play('lockpick', { vol: 0.5, jitter: 0.2 }) || this.metal(); }
   levelup() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.2, 0.18, 'triangle'), i * 110)); }
-  elevator() { this.tone(70, 3, 0.25, 'sawtooth'); this.burst(200, 3, 0.15); }
-  register() { this.tone(2000, 0.1, 0.2, 'triangle'); setTimeout(() => this.metal(), 60); }
+  elevator() { this.play('elevator', { vol: 0.5, jitter: 0 }) || (this.tone(70, 3, 0.25, 'sawtooth'), this.burst(200, 3, 0.15)); }
+  register() { this.play('register', { vol: 0.6 }) || (this.tone(2000, 0.1, 0.2, 'triangle'), setTimeout(() => this.metal(), 60)); }
 }
 
 export const rand = (a, b) => a + Math.random() * (b - a);

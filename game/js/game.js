@@ -355,7 +355,7 @@ G.refill = (idx, useBank) => {
   const total = it.ammo + (useBank ? G.bankFee(it.ammo) : 0);
   if (e.reserve >= it.mag * 5) return UI.toast('Ammo already full.', 'bad');
   if (!pay(total, useBank)) return UI.toast('Not enough money.', 'bad'), sfx.denied();
-  e.reserve = it.mag * 5; sfx.reload(); UI.toast('Refilled ' + it.name + ' ammo.', 'good');
+  e.reserve = it.mag * 5; sfx.reload(it); UI.toast('Refilled ' + it.name + ' ammo.', 'good');
 };
 G.sell = (idx) => {
   const e = P.inv[idx]; if (!e || e.id === 'fists') return;
@@ -775,7 +775,7 @@ function botShoot(b, dt, it, t, dist) {
   b.reloadT -= dt; b.fireT -= dt;
   if (b.reloadT > 0) return;
   const g = b.gun;
-  if (g.mag <= 0) { if (g.reserve > 0) { const n = Math.min(it.mag, g.reserve); g.reserve -= n; g.mag = n; b.reloadT = it.reload; sfx.reload(); } else setBotWeapon(b, 'melee'); return; }
+  if (g.mag <= 0) { if (g.reserve > 0) { const n = Math.min(it.mag, g.reserve); g.reserve -= n; g.mag = n; b.reloadT = it.reload; sfx.reload(it); } else setBotWeapon(b, 'melee'); return; }
   if (b.seeT < 0.55 - b.skill * 0.3 || b.fireT > 0 || b.blindT > 0) return;
   if (b.thinkT > 0.3 && !los(b, t)) return;
   const burst = it.auto ? 3 + randi(0, 4) : 1;
@@ -888,11 +888,11 @@ function fireWeapon(shooter, o, dir, it) {
       if (c.t > range * 0.4) dmg *= 1 - 0.5 * clamp((c.t - range * 0.4) / (range * 0.6), 0, 1);
       if (shooter.rageT > 0) dmg *= 1.15;
       hurt(c.hit, dmg, c.part, shooter, it);
-      impactFx(end, 3, true);
+      impactFx(end, 3, true); sfx.flesh(camDist({ pos: end }));
       if (shooter === P) { UI.hitmarker(c.part === 'head'); c.part === 'head' ? sfx.headshot() : sfx.hitmark(); }
       if (c.hit === P) UI.hurt(dmg);
     } else if (w.hit) {
-      impactFx(end, 3, false);
+      impactFx(end, 3, false); if (Math.random() < 0.5) sfx.ricochet(camDist({ pos: end }));
       if (shooter === P || camDist(shooter) < 40) decal(end, w.hit.axis, d);
     }
   }
@@ -1200,7 +1200,7 @@ function tryReload() {
   if (P.downed) return;
   if (it && it.revive) { return; }
   if (!it || !isGun(it) || P.reloadT > 0 || e.mag >= it.mag || e.reserve <= 0) return;
-  P.reloadT = it.reload; sfx.reload();
+  P.reloadT = it.reload; sfx.reload(it);
 }
 function tryFinish() {
   const e = P.inv[P.eq], it = e && ITEM[e.id];
@@ -1225,7 +1225,7 @@ function playerAttack(dt) {
       return;
     }
     if (mouseL && P.fireT <= 0) {
-      if (e.mag <= 0) { sfx.click(); P.fireT = 0.3; tryReload(); mouseL = false; return; }
+      if (e.mag <= 0) { sfx.dry(); P.fireT = 0.3; tryReload(); mouseL = false; return; }
       e.mag--; P.fireT = 60 / it.rpm;
       if (!it.auto) mouseL = false;
       const d = aimDir();
@@ -1237,7 +1237,7 @@ function playerAttack(dt) {
       P.pitch = clamp(P.pitch + kick, -1.55, 1.55); P.yaw += rand(-kick, kick) * 0.4; P.recoilP += kick;
       vmKick = 0.035 + kick * 0.8; recoilAnim = 1;
       if (it.type !== 'launcher' && it.id !== 'magnum' && it.id !== 'doublebarrel' && !it.bolt && it.type !== 'shotgun') ejectShell();
-      if (it.bolt || (it.type === 'shotgun' && it.id !== 'doublebarrel')) { cycleT = 0.55; setTimeout(ejectShell, 250); P.fireT = Math.max(P.fireT, 0.6); }
+      if (it.bolt || (it.type === 'shotgun' && it.id !== 'doublebarrel')) { sfx.cycle(it); cycleT = 0.55; setTimeout(ejectShell, 250); P.fireT = Math.max(P.fireT, 0.6); }
       if (e.mag <= 0 && e.reserve > 0) setTimeout(tryReload, 250);
     }
   } else if (isMeleeish(it)) {

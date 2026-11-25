@@ -3,3 +3,4 @@ LAWLESS asset credits
 - Scanned props, melee weapons, bolt rifle, service pistol, sky HDRI, surface textures: Poly Haven (CC0)
 - Desert Eagle model: OpenGameArt.org (CC0)
 - AK-47, M4A1, shotgun, scoped rifle, Makarov, Luger, Suomi KP, M3 grease gun, flare gun: 3DModelsCC0 "Free CC0 Guns & Explosives Pack" (CC0)
+- Sound effects: CC0 recordings from Freesound.org (ids 427592, 330634, 427596, 163457, 159710, 696023, 344142, 427597, 249298, 255111, 674742, 815879, 449614, 620928, 725402, 389590, 94778, 138481, 392975, 151624, 184438, 17502, 563284, 263829, 448086, 160215, 521590)
