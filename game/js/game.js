@@ -6,6 +6,7 @@ import { loadAssets, Instancer, size as kitSize, gunModel, loadPBR, pbrMat, upgr
 import { makeChar, HEAD_Y, randomOutfit } from './chars.js';
 import { RoomEnvironment } from './pp/environments/RoomEnvironment.js';
 import { RGBELoader } from './pp/loaders/RGBELoader.js';
+import { RoundedBoxGeometry } from './pp/RoundedBoxGeometry.js';
 import { clone as kitClone } from './assets.js';
 import * as UI from './ui.js';
 import { EffectComposer } from './pp/postprocessing/EffectComposer.js';
@@ -479,11 +480,21 @@ const eyeOf = (c) => new THREE.Vector3(c.pos.x, c.pos.y + eyeH(c), c.pos.z);
 let vm = new THREE.Group(); vmScene.add(vm);
 let vmItem = null, vmSwing = 0;
 const LONG = ['rifle', 'sniper', 'shotgun', 'launcher'];
+const vmFabric = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#808080'; x.fillRect(0, 0, 128, 128); const d = x.getImageData(0, 0, 128, 128); for (let i = 0; i < d.data.length; i += 4) { const v = (Math.random() - 0.5) * 40 + ((i / 4) % 3 === 0 ? -10 : 0); d.data[i] += v; d.data[i + 1] += v; d.data[i + 2] += v; } x.putImageData(d, 0, 0); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 4); return t; })();
+const vmSleeveMat = new THREE.MeshStandardMaterial({ color: 0x4a5262, map: vmFabric, roughness: 0.95, envMapIntensity: 0.4 });
+const vmCuffMat = new THREE.MeshStandardMaterial({ color: 0x2c313b, map: vmFabric, roughness: 0.95 });
+const vmGloveMat = new THREE.MeshStandardMaterial({ color: 0x1e1e20, roughness: 0.65, envMapIntensity: 0.5 });
 function buildVM() {
   vmScene.remove(vm); vm = new THREE.Group(); vmScene.add(vm);
   const e = P.inv[P.eq]; vmItem = e ? ITEM[e.id] : ITEM.fists;
   const skin = 0x151515, sleeve = 0x2e3440;
-  const arm = (len = 0.46) => { const a = new THREE.Group(); bx(a, 0.1, 0.1, len, sleeve, 0, 0, len / 2 - 0.02); bx(a, 0.106, 0.106, 0.035, 0x252a33, 0, 0, -0.01); bx(a, 0.095, 0.095, 0.1, skin, 0, 0, -0.07); return a; };
+  const arm = (len = 0.46) => {
+    const a = new THREE.Group();
+    const sl = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.1, len, 3, 0.022), vmSleeveMat); sl.position.z = len / 2 - 0.02; a.add(sl);
+    const cuff = new THREE.Mesh(new RoundedBoxGeometry(0.104, 0.104, 0.04, 3, 0.02), vmCuffMat); cuff.position.z = -0.01; a.add(cuff);
+    const hand = new THREE.Mesh(new RoundedBoxGeometry(0.094, 0.094, 0.11, 3, 0.03), vmGloveMat); hand.position.z = -0.07; a.add(hand);
+    return a;
+  };
   if (vmItem.id === 'fists' || vmItem.id === 'knuckledusters') {
     const l = arm(), r = arm(); l.position.set(-0.18, -0.05, 0); r.position.set(0.18, -0.05, 0); l.rotation.x = r.rotation.x = 0.1; vm.add(l, r); vm.userData.l = l; vm.userData.r = r;
     if (vmItem.id === 'knuckledusters') { bx(l, 0.1, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); bx(r, 0.1, 0.04, 0.03, 0xaaaaaa, 0, 0.02, -0.12); }
@@ -496,7 +507,7 @@ function buildVM() {
       const fz = long ? -0.26 : vmItem.type === 'smg' ? -0.13 : -0.02;
       l.position.set(long ? -0.012 : -0.022, long ? -0.035 : -0.07, fz); l.rotation.set(0.25, long ? 0.55 : 0.4, 0); vm.add(l); vm.userData.l = l; vm.userData.lRest = l.position.clone();
       const sy = w.userData.sightY ?? 0.07;
-      vm.userData.base = long ? new THREE.Vector3(0.115, -0.13, -0.28) : vmItem.type === 'smg' ? new THREE.Vector3(0.12, -0.13, -0.3) : new THREE.Vector3(0.1, -0.105, -0.36);
+      vm.userData.base = long ? new THREE.Vector3(0.12, -0.125, -0.34) : vmItem.type === 'smg' ? new THREE.Vector3(0.12, -0.13, -0.3) : new THREE.Vector3(0.1, -0.105, -0.36);
       vm.userData.ads = new THREE.Vector3(0, -sy - 0.002, long ? -0.2 : vmItem.type === 'smg' ? -0.22 : -0.26);
     } else {
       if (isMeleeish(vmItem)) w.rotation.x = 0.9;

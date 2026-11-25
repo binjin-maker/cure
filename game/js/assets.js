@@ -8,7 +8,7 @@ export const A = { lib, mats, anims: null };
 
 export async function loadAssets(onProgress) {
   const loader = new GLTFLoader();
-  const files = ['downtown', 'guns', 'street', 'trees', 'char', 'props', 'phweapons', 'deagle'];
+  const files = ['downtown', 'guns', 'street', 'trees', 'char', 'props', 'phweapons', 'deagle', ...['AK47', 'M4A1', 'Shotgun', 'Sniper', 'Makarov', 'Luger', 'Suomi_KP', 'Grease_Gun', 'FlareGun'].map(n => 'real/' + n)];
   let done = 0;
   await Promise.all(files.map(async (f) => {
     const g = await loader.loadAsync('./assets/' + f + '.glb');
@@ -129,8 +129,19 @@ const PISTOL = { node: 'service_pistol.gltf', fwd: 'x', scale: 1.05, grip: [-0.0
 const EXT = {
   deagle: { node: 'deagle_rt', fwd: 'x', scale: 1, grip: [-0.08, -0.049], parts: { slide: 'Slide', mag: 'Magazine', hammer: 'Hammer' }, sightY: 0.05, type: 'pistol' },
   mosin: { node: 'bolt_action_rifle_7_62.gltf', fwd: 'x', scale: 1, grip: [-0.31, 0.0], hide: /bullet|scope/, parts: { bolt: 'bolt_action_rifle_7_62_bolt_a' }, sightY: 0.075, type: 'sniper' },
-  scout: { node: 'bolt_action_rifle_7_62.gltf', fwd: 'x', scale: 1, grip: [-0.31, 0.0], hide: /bullet|wrap/, parts: { bolt: 'bolt_action_rifle_7_62_bolt_a' }, sightY: 0.085, type: 'sniper' },
-  beretta: PISTOL, m1911: PISTOL, fnp45: PISTOL, hawkeye: PISTOL,
+  beretta: PISTOL, m1911: PISTOL, fnp45: PISTOL,
+  akm: { node: 'AK47', fwd: 'x', scale: 1, grip: [-0.185, -0.09], sightY: 0.085, type: 'rifle' },
+  aks74u: { node: 'AK47', fwd: 'x', scale: 0.82, grip: [-0.185, -0.09], sightY: 0.085, type: 'rifle' },
+  m4a1: { node: 'M4A1', fwd: 'x', scale: 1, grip: [-0.2, -0.1], sightY: 0.095, type: 'rifle' },
+  r870: { node: 'Shotgun', fwd: 'x', scale: 1, grip: [-0.236, -0.06], sightY: 0.06, type: 'shotgun' },
+  ithaca: { node: 'Shotgun', fwd: 'x', scale: 0.95, grip: [-0.236, -0.06], sightY: 0.06, type: 'shotgun' },
+  scout: { node: 'Sniper', fwd: 'x', scale: 1, grip: [-0.374, -0.07], sightY: 0.12, type: 'sniper' },
+  g17: { node: 'Makarov', fwd: 'x', scale: 1.1, grip: [-0.043, -0.045], sightY: 0.045, type: 'pistol' },
+  g18: { node: 'Makarov', fwd: 'x', scale: 1.1, grip: [-0.043, -0.045], sightY: 0.045, type: 'pistol' },
+  hawkeye: { node: 'Luger', fwd: 'x', scale: 1, grip: [-0.053, -0.05], sightY: 0.05, type: 'pistol' },
+  tommy: { node: 'Suomi_KP', fwd: 'x', scale: 1, grip: [-0.087, -0.06], sightY: 0.06, type: 'smg' },
+  mac10: { node: 'Grease_Gun', fwd: 'x', scale: 0.85, grip: [-0.23, -0.07], sightY: 0.07, type: 'smg' },
+  flaregun: { node: 'FlareGun', fwd: 'x', scale: 1, grip: [-0.06, -0.04], sightY: 0.04, type: 'pistol' },
   crowbar: { node: 'crowbar_01.gltf', up: true, handle: -0.22 }, machete: { node: 'machete.gltf', up: true, handle: -0.15 },
   bat: { node: 'baseball_bat.gltf', up: true, handle: -0.18 }, metalbat: { node: 'baseball_bat.gltf', up: true, handle: -0.18, tint: 0x9aa0a8 },
   sledgehammer: { node: 'sledgehammer_01.gltf', up: true, handle: 0.16, flip: true }, fireaxe: { node: 'wooden_axe.gltf', up: true, handle: -0.16 },
