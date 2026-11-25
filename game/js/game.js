@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ITEMS, ITEM, isGun, isMeleeish, CODES, BOT_NAMES, ALLOWANCE, ALLOWANCE_SEC, START_BANK, MAX_BOUNTY, xpForLevel, levelReward, unlockPrice } from './data.js';
 import { Physics, NavGrid, Sfx, rand, randi, pick, clamp, fmt } from './engine.js';
 import { buildWorld, ZONES, zoneOfY, EDGE } from './world.js';
-import { loadAssets, Instancer, size as kitSize, gunModel, loadPBR, pbrMat, upgradeKit } from './assets.js';
+import { loadAssets, updateCull, Instancer, size as kitSize, gunModel, loadPBR, pbrMat, upgradeKit } from './assets.js';
 import { makeChar, HEAD_Y, randomOutfit } from './chars.js';
 import { RoomEnvironment } from './pp/environments/RoomEnvironment.js';
 import { RGBELoader } from './pp/loaders/RGBELoader.js';
@@ -15,12 +15,12 @@ import { UnrealBloomPass } from './pp/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './pp/postprocessing/OutputPass.js';
 
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.autoClear = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.82;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(80, 1, 0.08, 900);
+const camera = new THREE.PerspectiveCamera(80, 1, 0.12, 900);
 camera.rotation.order = 'YXZ';
 const vmScene = new THREE.Scene(), vmCam = new THREE.PerspectiveCamera(58, 1, 0.01, 10);
 vmScene.add(new THREE.HemisphereLight(0xfff4e8, 0x4a4440, 1.6));
@@ -29,7 +29,7 @@ const hemi = new THREE.HemisphereLight(0x8a98ae, 0x2a2826, 1.05); scene.add(hemi
 const sun = new THREE.DirectionalLight(0xa8b8d4, 0.55); scene.add(sun); scene.add(sun.target);
 const SUN_DIR = new THREE.Vector3(-0.35, 0.8, 0.45).normalize();
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 500 });
+Object.assign(sun.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 1, far: 400 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
 const SKY = new THREE.Color(0x3a414c), UNDER = new THREE.Color(0x07080a);
 scene.background = SKY.clone(); scene.fog = new THREE.FogExp2(SKY.getHex(), 0.017);
@@ -57,7 +57,7 @@ const glowTex = (() => { const c = document.createElement('canvas'); c.width = c
 const vibeL1 = new THREE.PointLight(0xff4fb0, 0, 40, 1.2); vibeL1.position.set(-14, -45, 0); scene.add(vibeL1);
 const vibeL2 = new THREE.PointLight(0x7a5cff, 0, 40, 1.2); vibeL2.position.set(14, -45, 12); scene.add(vibeL2);
 
-export const G = {
+export const G = { _r: renderer, _s: scene, _cam: camera,
   THREE, scene, camera, renderer, ITEM, ITEMS, sfx: new Sfx(),
   state: 'loading', mode: 'standard', time: 0, bots: [], inter: [], cashBags: [], drops: [], projectiles: [], fires: [], decals: [],
   save: null, version: 'dev', update: { ready: false },
@@ -91,7 +91,7 @@ const navs = {
 };
 
 // ---------- save ----------
-const DEFAULT_SETTINGS = { bloom: true, lights: 8, tp: false, sens: 1, adsSens: 0.7, fov: 80, vol: 0.6, quality: 1, view: 420, fps: false, invertY: false, xhair: '#ffffff', names: true, bob: true };
+const DEFAULT_SETTINGS = { bloom: true, lights: 4, tp: false, sens: 1, adsSens: 0.7, fov: 80, vol: 0.6, quality: 1, view: 420, fps: false, invertY: false, xhair: '#ffffff', names: true, bob: true };
 function freshSave() {
   return { bank: START_BANK, level: 1, xp: 0, unlocked: [], passes: ['group'], codes: [], allowanceT: 0, settings: { ...DEFAULT_SETTINGS }, stats: { kills: 0, deaths: 0, downs: 0, safes: 0, registers: 0, earned: 0 }, session: null };
 }
@@ -102,6 +102,7 @@ async function loadSave() {
   const f = freshSave();
   s = Object.assign(f, s || {});
   s.settings = Object.assign({ ...DEFAULT_SETTINGS }, s.settings || {});
+  if ((s.settings.perfV || 0) < 2) { s.settings.lights = Math.min(s.settings.lights, 4); s.settings.perfV = 2; }
   s.stats = Object.assign(f.stats, s.stats || {});
   return s;
 }
@@ -739,8 +740,8 @@ function updateBot(b, dt) {
         b.swingT = (it.rate || 0.5) * rand(1.1, 1.7);
         b.anim = 0.25;
         const dmg = (it.dmg || 8) * (t.downed ? 1.5 : 1);
-        if (Math.random() < 0.55 + b.skill * 0.35) { hurt(t, dmg, 'body', b, it); sfx.hit(camDist(b)); if (t.isPlayer) UI.hurt(dmg); }
-        else sfx.swing();
+        if (Math.random() < 0.55 + b.skill * 0.35) { hurt(t, dmg, 'body', b, it); sfx.hit(t.isPlayer ? null : t.pos); if (t.isPlayer) UI.hurt(dmg); }
+        else sfx.swing(b.pos);
       }
     }
   } else {
@@ -775,7 +776,7 @@ function botShoot(b, dt, it, t, dist) {
   b.reloadT -= dt; b.fireT -= dt;
   if (b.reloadT > 0) return;
   const g = b.gun;
-  if (g.mag <= 0) { if (g.reserve > 0) { const n = Math.min(it.mag, g.reserve); g.reserve -= n; g.mag = n; b.reloadT = it.reload; sfx.reload(it); } else setBotWeapon(b, 'melee'); return; }
+  if (g.mag <= 0) { if (g.reserve > 0) { const n = Math.min(it.mag, g.reserve); g.reserve -= n; g.mag = n; b.reloadT = it.reload; sfx.reload(it, b.pos); } else setBotWeapon(b, 'melee'); return; }
   if (b.seeT < 0.55 - b.skill * 0.3 || b.fireT > 0 || b.blindT > 0) return;
   if (b.thinkT > 0.3 && !los(b, t)) return;
   const burst = it.auto ? 3 + randi(0, 4) : 1;
@@ -797,6 +798,14 @@ function botLoot(b, o) {
 }
 function poseBot(b, dt) {
   const m = b.model, u = m.userData;
+  // distance LOD: far characters skip animation, very far ones are hidden
+  if (m !== tpModel) {
+    const d = camDist(b), far = d > 110 || (b.zone && b.zone !== P.zone);
+    m.visible = !far; if (far) return;
+    const sh = d < 35; if (u._sh !== sh) { u._sh = sh; m.traverse(o => { if (o.isMesh) o.castShadow = sh; }); }
+    if (d > 50 && (u._skip = ((u._skip || 0) + 1) % 3)) { m.position.copy(b.pos); m.rotation.set(0, b.yaw, 0); return; }
+    if (d > 50) dt *= 3;
+  }
   m.position.copy(b.pos); m.rotation.set(0, b.yaw, 0);
   const sp = Math.hypot(b.vel.x, b.vel.z);
   if (b.downed || b.dead) { u.play('die', 0.15); u.mixer.update(dt); if (b.downed) m.position.y += 0.02; return; }
@@ -815,6 +824,31 @@ function poseBot(b, dt) {
 function botTarget() { return 22; }
 
 // ---------- combat ----------
+// damage falls off past each weapon class's effective range, down to a floor
+const FALL = { pistol: [22, 0.35], smg: [28, 0.35], shotgun: [9, 0.1], rifle: [55, 0.5], sniper: [140, 0.7] };
+function falloff(it, d) { const f = FALL[it.type]; if (!f) return 1; const [E, lo] = f; return d <= E ? 1 : Math.max(lo, 1 - (d - E) / (E * 2.5) * (1 - lo)); }
+// distance LOD for loose scene objects (interactables, glows, decals): far ones move to layer 1, which the camera doesn't draw
+let LOD = null, lodTick = 0;
+function updateLOD() {
+  if (lodTick++ % 10) return;
+  if (!LOD) {
+    const skip = new Set([sky, tpModel, ...G.bots.map(b => b.model)]);
+    LOD = [];
+    const box = new THREE.Box3(), c = new THREE.Vector3();
+    for (const o of scene.children) {
+      if (skip.has(o) || o.isLight || o.isBatchedMesh || o.isInstancedMesh || o.isPoints || o.isLineSegments) continue;
+      box.setFromObject(o); if (box.isEmpty()) continue;
+      const r = box.getSize(c).length() / 2; if (r > 14) continue;
+      box.getCenter(c);
+      LOD.push({ o, x: c.x, y: c.y, z: c.z, d: o.isSprite ? 85 : r < 1.5 ? 60 : 110, far: false });
+    }
+  }
+  const p = camera.position;
+  for (const e of LOD) {
+    const dx = e.x - p.x, dy = (e.y - p.y) * 3, dz = e.z - p.z, far = dx * dx + dy * dy + dz * dz > e.d * e.d;
+    if (far !== e.far) { e.far = far; e.o.traverse(q => q.layers.set(far ? 1 : 0)); }
+  }
+}
 function camDist(c) { return P.alive && G.state === 'play' ? c.pos.distanceTo(P.pos) : 60; }
 function rayChar(o, d, maxT, shooter, zone) {
   let best = maxT, hit = null, part = null;
@@ -868,7 +902,8 @@ function puff(p, color = 0xaaaaaa, n = 4, sz = 0.08, up = 1) {
 }
 
 function fireWeapon(shooter, o, dir, it) {
-  sfx.gun(it, camDist(shooter));
+  sfx.gun(it, shooter === P ? null : shooter.pos);
+  if (shooter !== P && (it.bolt || (it.type === 'shotgun' && it.id !== 'doublebarrel'))) sfx.cycle(it, shooter.pos);
   if (it.type !== 'launcher' || it.proj === 'flare') {
     if (shooter === P && !G.thirdPerson() && vm.userData.w) { const tip = new THREE.Vector3(0, 0.03, vm.userData.w.userData.tipZ ?? (it.type === 'pistol' ? -0.3 : it.type === 'smg' ? -0.5 : -0.95)); vm.userData.w.localToWorld(tip); sprite(flashTex, tip, it.type === 'pistol' ? 0.16 : 0.24, 0.045, { scene: vmScene }); flashLight.position.copy(camera.position).addScaledVector(aimDir(), 1); flashLight.intensity = 30; flashT = 0.05; }
     else muzzleFlash(o.clone().addScaledVector(dir, 0.9), it.type === 'shotgun' ? 1.5 : 1);
@@ -885,14 +920,14 @@ function fireWeapon(shooter, o, dir, it) {
     if (i === 0 || Math.random() < 0.3) tracer(o.clone().addScaledVector(d, 0.6), end);
     if (c.hit) {
       let dmg = it.dmg * (c.part === 'head' ? it.head : c.part === 'limb' ? 0.8 : 1);
-      if (c.t > range * 0.4) dmg *= 1 - 0.5 * clamp((c.t - range * 0.4) / (range * 0.6), 0, 1);
+      dmg *= falloff(it, c.t);
       if (shooter.rageT > 0) dmg *= 1.15;
       hurt(c.hit, dmg, c.part, shooter, it);
-      impactFx(end, 3, true); sfx.flesh(camDist({ pos: end }));
+      impactFx(end, 3, true); sfx.flesh(c.hit === P ? null : end);
       if (shooter === P) { UI.hitmarker(c.part === 'head'); c.part === 'head' ? sfx.headshot() : sfx.hitmark(); }
       if (c.hit === P) UI.hurt(dmg);
     } else if (w.hit) {
-      impactFx(end, 3, false); if (Math.random() < 0.5) sfx.ricochet(camDist({ pos: end }));
+      impactFx(end, 3, false); if (Math.random() < 0.5) sfx.ricochet(end);
       if (shooter === P || camDist(shooter) < 40) decal(end, w.hit.axis, d);
     }
   }
@@ -945,7 +980,7 @@ function explode(p) {
   }
   if (it.gas) { G.fires.push({ x: pos.x, y: pos.y, z: pos.z, r: it.radius, t: 12, gas: true, by: p.shooter, zone: p.zone }); puff(pos, 0xb8b860, 14, 0.4); sfx.burst(600, 1.2, 0.5, dist); return; }
   if (it.fire) { G.fires.push({ x: pos.x, y: pos.y, z: pos.z, r: it.radius, t: 8, by: p.shooter, zone: p.zone }); sfx.burst(800, 0.8, 0.6, dist); puff(pos, 0xffaa33, 14, 0.25); return; }
-  sfx.explosion(dist);
+  sfx.explosion(pos);
   for (let i = 0; i < 6; i++) sprite(flashTex, pos.clone().add(new THREE.Vector3(rand(-1, 1), rand(0, 1.5), rand(-1, 1))), rand(2, 4), rand(0.15, 0.3));
   for (let i = 0; i < 12; i++) sprite(smokeTex, pos.clone().add(new THREE.Vector3(rand(-1.5, 1.5), rand(0, 2), rand(-1.5, 1.5))), rand(1.5, 3), rand(1.5, 3), { additive: false, color: 0x3a3836, opacity: 0.7, grow: 0.6, vel: new THREE.Vector3(rand(-1, 1), rand(1, 2.5), rand(-1, 1)) });
   for (let i = 0; i < 20; i++) sprite(sparkTex, pos.clone(), 0.12, rand(0.4, 1), { vel: new THREE.Vector3(rand(-9, 9), rand(2, 12), rand(-9, 9)), grav: 14 });
@@ -1630,13 +1665,13 @@ function updateDust(dt) {
 // ---------- main ----------
 function resize() {
   const q = G.save?.settings.quality ?? 1;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * q);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25) * q);
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = vmCam.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); vmCam.updateProjectionMatrix();
   if (typeof composer !== 'undefined') { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
 }
 addEventListener('resize', resize);
-G.applySettings = () => { const s = G.save.settings; sfx.setVol(s.vol); resize(); scene.fog.far = s.view; camera.far = s.view + 80; camera.updateProjectionMatrix(); };
+G.applySettings = () => { const s = G.save.settings; sfx.setVol(s.vol); resize(); scene.fog.far = s.view; camera.far = Math.min(s.view, 200) + 40; camera.updateProjectionMatrix(); };
 
 function respawnPlayer() {
   const spawns = [...W.spawns];
@@ -1727,7 +1762,7 @@ function frame(now) {
     shake *= Math.pow(0.05, dt);
     camera.rotation.set(P.pitch + rand(-shake, shake) * 0.1, P.yaw + rand(-shake, shake) * 0.1, 0);
     if (G.thirdPerson()) placeTPCamera();
-    poseTP(dt);
+    poseTP(dt); sfx.listen(camera); updateLOD(); updateCull(camera, P.zone === 'surface' ? Math.min(G.save.settings.view, 150) : 60);
     const it = vmItem || ITEM.fists;
     const fov = G.save.settings.fov * (1 - P.ads * (it.scope ? 0.72 : 0.22));
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }

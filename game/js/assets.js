@@ -59,20 +59,31 @@ export function clone(name) {
   return c;
 }
 
-// static instancing: collects placements, then builds one InstancedMesh per (geometry, material)
+// static props: one InstancedMesh per (geometry, material); small props are split into 60 m cells and hidden past a distance
+export const CULL = [];
+let cullTick = 0;
+const CELL = 60;
+export function updateCull(cam, viewDist = 420) {
+  if (cullTick++ % 8) return;
+  const cx = cam.position.x, cz = cam.position.z;
+  for (const c of CULL) { const dx = c.x - cx, dz = c.z - cz; c.mesh.visible = dx * dx + dz * dz < (Math.min(c.d, viewDist) + c.C * 0.72) ** 2; }
+}
 export class Instancer {
   constructor() { this.groups = new Map(); }
   add(name, x, y, z, ry = 0, s = 1, sy) {
     const n = lib[name]; if (!n) { if (!Instancer.miss) Instancer.miss = new Set(); if (!Instancer.miss.has(name)) { Instancer.miss.add(name); console.warn('missing asset', name); } return; }
     const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry), new THREE.Vector3(s, sy ?? s, s));
+    if (!n.userData._r) { const b = new THREE.Box3().setFromObject(n); n.userData._r = b.getSize(new THREE.Vector3()).length() / 2; }
+    const r = n.userData._r * s, small = r < 2;
     n.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(n.matrixWorld).invert();
+    const C = small ? CELL : 220, cx = Math.floor(x / C), cz = Math.floor(z / C);
     n.traverse(o => {
       if (!o.isMesh) return;
       const local = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
       const ms = Array.isArray(o.material) ? o.material : [o.material];
-      const key = o.geometry.uuid + '|' + ms.map(q => q.uuid).join(',');
-      if (!this.groups.has(key)) this.groups.set(key, { geo: o.geometry, mat: o.material, list: [] });
+      const key = o.geometry.uuid + '|' + ms.map(q => q.uuid).join(',') + (small ? '|' : '|B') + cx + ',' + cz + (r > 2.6 ? 's' : '');
+      if (!this.groups.has(key)) this.groups.set(key, { geo: o.geometry, mat: o.material, list: [], shadow: r > 2.6, small, d: r < 0.8 ? 45 : small ? 95 : 1e4, C, x: (cx + 0.5) * C, z: (cz + 0.5) * C });
       this.groups.get(key).list.push(new THREE.Matrix4().multiplyMatrices(m, local));
     });
   }
@@ -81,10 +92,10 @@ export class Instancer {
     for (const g of this.groups.values()) {
       const im = new THREE.InstancedMesh(g.geo, g.mat, g.list.length);
       g.list.forEach((m, i) => im.setMatrixAt(i, m));
-      im.computeBoundingSphere();
+      im.computeBoundingSphere(); im.matrixAutoUpdate = false;
       const ms = Array.isArray(g.mat) ? g.mat : [g.mat];
-      const transparent = ms.some(m => m.transparent);
-      im.castShadow = !transparent; im.receiveShadow = true;
+      im.castShadow = false; im.receiveShadow = true;
+      CULL.push({ mesh: im, x: g.x, z: g.z, d: g.d, C: g.C });
       scene.add(im); count += g.list.length;
     }
     this.groups.clear();

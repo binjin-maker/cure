@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from './pp/RoundedBoxGeometry.js';
 import { gunModel } from './assets.js';
+import { mergeGeometries } from './pp/utils/BufferGeometryUtils.js';
 
 // blocky avatar rig: 1 stud = U metres; legs 2, torso 2, head 1.2
 const U = 0.36;
@@ -160,19 +161,37 @@ const GEO = {};
 function geo(k, w, h, d, r) { return GEO[k] || (GEO[k] = new RoundedBoxGeometry(w, h, d, 3, r)); }
 const M = (map, rough = 0.88) => new THREE.MeshStandardMaterial({ map, roughness: rough, metalness: 0, envMapIntensity: 0.35 });
 // box face order: +x, -x, +y, -y, +z, -z ; avatar front = +z, its right side = -x
+// all 36 faces of one outfit go into a single 6x6 atlas -> one material, one draw call per body part
+const ROWS = { torso: 0, head: 1, armL: 2, armR: 3, legL: 4, legR: 5 };
 function outfitMaterials(o) {
   const masked = o.head === 'balaclava' || o.head === 'ski';
-  const ts = M(paintTorsoFace(o, 'side'));
-  const torso = [ts, ts, M(plainTex(o.shirt)), M(plainTex(o.pants)), M(paintTorsoFace(o, 'front')), M(paintTorsoFace(o, 'back'))];
-  const ao = M(paintArmFace(o, 'out')), ai = M(paintArmFace(o, 'in'));
-  const armTop = M(plainTex(o.top === 'vest' ? o.skin : o.shirt)), hand = M(plainTex(o.gloves ?? o.skin));
-  const armL = [ao, ai, armTop, hand, ai, ai], armR = [ai, ao, armTop, hand, ai, ai];
-  const lo = M(paintLegFace(o, 'out')), lf = M(paintLegFace(o, 'front')), lb = M(paintLegFace(o, 'back')), li = M(paintLegFace(o, 'in'));
-  const ltop = M(plainTex(o.pants)), sole = M(plainTex(0x151515));
-  const legL = [lo, li, ltop, sole, lf, lb], legR = [li, lo, ltop, sole, lf, lb];
-  const skin = M(plainTex(masked ? o.mask : o.skin, masked ? 22 : 8), masked ? 0.95 : 0.6);
-  const head = [skin, skin, skin, skin, M(paintFace(o), masked ? 0.95 : 0.6), skin];
-  return { torso, armL, armR, legL, legR, head };
+  const ts = paintTorsoFace(o, 'side');
+  const torso = [ts, ts, plainTex(o.shirt), plainTex(o.pants), paintTorsoFace(o, 'front'), paintTorsoFace(o, 'back')];
+  const ao = paintArmFace(o, 'out'), ai = paintArmFace(o, 'in');
+  const armTop = plainTex(o.top === 'vest' ? o.skin : o.shirt), hand = plainTex(o.gloves ?? o.skin);
+  const lo = paintLegFace(o, 'out'), lf = paintLegFace(o, 'front'), lb = paintLegFace(o, 'back'), li = paintLegFace(o, 'in');
+  const ltop = plainTex(o.pants), sole = plainTex(0x151515);
+  const skin = plainTex(masked ? o.mask : o.skin, masked ? 22 : 8);
+  const faces = { torso, head: [skin, skin, skin, skin, paintFace(o), skin], armL: [ao, ai, armTop, hand, ai, ai], armR: [ai, ao, armTop, hand, ai, ai], legL: [lo, li, ltop, sole, lf, lb], legR: [li, lo, ltop, sole, lf, lb] };
+  const C = 128, cv = document.createElement('canvas'); cv.width = cv.height = C * 6; const x = cv.getContext('2d');
+  for (const [k, row] of Object.entries(ROWS)) faces[k].forEach((t, i) => x.drawImage(t.image, i * C, row * C, C, C));
+  for (const k in faces) for (const t of faces[k]) t.dispose();
+  const map = tex(cv);
+  const mat = M(map, masked ? 0.9 : 0.85);
+  return { torso: mat, head: mat, armL: mat, armR: mat, legL: mat, legR: mat };
+}
+// rounded box whose 6 face groups are remapped into atlas row `row`
+const AGEO = {};
+function ageo(k, row, w, h, d, r) {
+  const key = k + row; if (AGEO[key]) return AGEO[key];
+  const g = new RoundedBoxGeometry(w, h, d, 3, r), uv = g.attributes.uv, idx = g.index;
+  const done = new Uint8Array(uv.count);
+  for (const gr of g.groups) for (let i = gr.start; i < gr.start + gr.count; i++) {
+    const v = idx ? idx.getX(i) : i; if (done[v]) continue; done[v] = 1;
+    uv.setXY(v, (gr.materialIndex + 0.03 + uv.getX(v) * 0.94) / 6, 1 - (row + 1) / 6 + (0.03 + uv.getY(v) * 0.94) / 6);
+  }
+  g.clearGroups(); uv.needsUpdate = true;
+  return (AGEO[key] = g);
 }
 const pool = [];
 export function outfitPool(n = 16) { while (pool.length < n) { const o = randomOutfit(); pool.push({ o, mats: outfitMaterials(o) }); } return pool; }
@@ -235,6 +254,28 @@ function clips() {
   return (CLIPS = { idle, walk: swing('walk', 0.9, 0.75, 0.7, 0, 0.025), sprint: swing('sprint', 0.6, 1.25, 1.05, 0.18, 0.05), die });
 }
 
+// merge every static mesh under `root` into one mesh per material (cuts draw calls for held guns, hair, gear)
+const flatCache = new Map();
+export function flatten(root, cacheKey) {
+  if (cacheKey && flatCache.has(cacheKey)) return flatCache.get(cacheKey).clone();
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), buckets = new Map();
+  root.traverse(o => {
+    if (!o.isMesh || Array.isArray(o.material) || !o.visible) return;
+    let g = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    if (g.index) g = g.toNonIndexed();
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    const key = o.material.uuid; if (!buckets.has(key)) buckets.set(key, { mat: o.material, geos: [] }); buckets.get(key).geos.push(g);
+  });
+  const out = new THREE.Group();
+  for (const { mat, geos } of buckets.values()) { const g = mergeGeometries(geos, false); if (!g) continue; const m = new THREE.Mesh(g, mat); m.castShadow = true; out.add(m); }
+  out.userData = { ...root.userData };
+  if (cacheKey) flatCache.set(cacheKey, out);
+  return cacheKey ? out.clone() : out;
+}
+
 // ---------- character ----------
 export function makeChar(outfit) {
   const pk = outfit ? { o: outfit, mats: outfitMaterials(outfit) } : outfitPool()[(Math.random() * 16) | 0];
@@ -242,15 +283,16 @@ export function makeChar(outfit) {
   const root = new THREE.Group();
   const body = new THREE.Group(); body.rotation.y = Math.PI; root.add(body);
   const rig = new THREE.Group(); rig.name = 'rig'; body.add(rig);
-  const torso = part(rig, 'torso', [0, 2 * U, 0], geo('torso', 2 * U, 2 * U, 1 * U, 0.035), m.torso, [0, U, 0]);
-  const head = part(torso, 'head', [0, 2 * U, 0], geo('head', 1.2 * U, 1.2 * U, 1.2 * U, 0.15), m.head, [0, 0.6 * U, 0]);
+  const torso = part(rig, 'torso', [0, 2 * U, 0], ageo('torso', 0, 2 * U, 2 * U, 1 * U, 0.035), m.torso, [0, U, 0]);
+  const head = part(torso, 'head', [0, 2 * U, 0], ageo('head', 1, 1.2 * U, 1.2 * U, 1.2 * U, 0.15), m.head, [0, 0.6 * U, 0]);
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * U, 0.34 * U, 0.16 * U, 12), new THREE.MeshStandardMaterial({ color: o.head === 'balaclava' || o.head === 'ski' ? o.mask : o.skin, roughness: 0.7 })); neck.position.y = 0.01; head.add(neck);
   const limb = geo('limb', 0.98 * U, 2 * U, 0.98 * U, 0.03);
-  const armR = part(torso, 'arm-right', [-1.5 * U, 1.85 * U, 0], limb, m.armR, [0, -0.85 * U, 0]);
-  const armL = part(torso, 'arm-left', [1.5 * U, 1.85 * U, 0], limb, m.armL, [0, -0.85 * U, 0]);
-  const legR = part(rig, 'leg-right', [-0.5 * U, 2 * U, 0], limb, m.legR, [0, -U, 0]);
-  const legL = part(rig, 'leg-left', [0.5 * U, 2 * U, 0], limb, m.legL, [0, -U, 0]);
+  const armR = part(torso, 'arm-right', [-1.5 * U, 1.85 * U, 0], ageo('limb', 3, 0.98 * U, 2 * U, 0.98 * U, 0.03), m.armR, [0, -0.85 * U, 0]);
+  const armL = part(torso, 'arm-left', [1.5 * U, 1.85 * U, 0], ageo('limb', 2, 0.98 * U, 2 * U, 0.98 * U, 0.03), m.armL, [0, -0.85 * U, 0]);
+  const legR = part(rig, 'leg-right', [-0.5 * U, 2 * U, 0], ageo('limb', 5, 0.98 * U, 2 * U, 0.98 * U, 0.03), m.legR, [0, -U, 0]);
+  const legL = part(rig, 'leg-left', [0.5 * U, 2 * U, 0], ageo('limb', 4, 0.98 * U, 2 * U, 0.98 * U, 0.03), m.legL, [0, -U, 0]);
   accessories(o, head, torso);
+  for (const holder of [head, torso]) { const extra = holder.children.filter(c => c.isMesh && c.material !== m.head && c.material !== m.torso); if (extra.length > 1) { const tmp = new THREE.Group(); holder.add(tmp); for (const e of extra) tmp.attach(e); const f = flatten(tmp); holder.remove(tmp); f.position.set(0, 0, 0); holder.add(f); } }
   for (const a of [armR, armL]) a.rotation.order = 'YXZ';
   const parts = { body, rig, torso, head, 'arm-right': armR, 'arm-left': armL, 'leg-right': legR, 'leg-left': legL };
   const mixer = new THREE.AnimationMixer(body);
@@ -269,7 +311,9 @@ export function makeChar(outfit) {
     setHeld(item, weaponModelFn) {
       while (hand.children.length) hand.remove(hand.children[0]);
       if (!item || item.id === 'fists') return;
-      const g = gunModel(item) || weaponModelFn(item);
+      const src = gunModel(item) || weaponModelFn(item);
+      src.position.set(0, 0, 0); src.quaternion.identity(); src.scale.set(1, 1, 1);
+      const g = flatten(src, 'held:' + item.id);
       g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0)));
       hand.add(g);
     },

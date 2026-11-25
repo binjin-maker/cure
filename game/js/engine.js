@@ -249,13 +249,30 @@ export class Sfx {
     return g;
   }
   // play a recorded sample; far sounds get muffled and quieter
-  play(name, { dist = 0, vol = 1, rate = 1, jitter = 0.06, delay = 0, far = 300 } = {}) {
+  // listener follows the camera every frame
+  listen(cam) {
+    if (!this.ctx) return;
+    const L = this.ctx.listener, p = cam.position, f = this._f || (this._f = cam.position.clone());
+    cam.getWorldDirection(f); this.lp = p;
+    if (L.positionX) { L.positionX.value = p.x; L.positionY.value = p.y; L.positionZ.value = p.z; L.forwardX.value = f.x; L.forwardY.value = f.y; L.forwardZ.value = f.z; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0; }
+    else { L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, 0, 1, 0); }
+  }
+  // play a recorded sample. at = null (your own), a world position (3D, falls off with distance) or a number (legacy distance)
+  play(name, { at = null, vol = 1, rate = 1, jitter = 0.06, delay = 0, ref = 6, roll = 1.4, far = 300 } = {}) {
     if (!this.ctx || !this.buf[name]) return false;
+    let dist = typeof at === 'number' ? at : at && this.lp ? Math.hypot(at.x - this.lp.x, at.y - this.lp.y, at.z - this.lp.z) : 0;
+    if (dist > far) return true;
     const t = this.ctx.currentTime + delay, s = this.ctx.createBufferSource(); s.buffer = this.buf[name];
     s.playbackRate.value = rate * (1 + (Math.random() - 0.5) * jitter);
-    const g = this.ctx.createGain(); g.gain.value = vol * Math.max(0, 1 - dist / far) ** 1.3;
-    if (dist > 12) { const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.max(500, 16000 / (1 + dist / 25)); s.connect(f); f.connect(g); } else s.connect(g);
-    g.connect(this.master); s.start(t);
+    // inverse-distance falloff, fading to zero at `far`
+    const att = dist <= ref ? 1 : ref / (ref + roll * (dist - ref));
+    const g = this.ctx.createGain(); g.gain.value = vol * att * Math.min(1, (far - dist) / (far * 0.25));
+    let node = s;
+    if (dist > 15) { const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.max(400, 18000 / (1 + dist / 18)); node.connect(f); node = f; }
+    node.connect(g);
+    if (at && typeof at === 'object') { const pn = this.ctx.createPanner(); pn.panningModel = 'HRTF'; pn.distanceModel = 'linear'; pn.refDistance = 1; pn.maxDistance = 1e5; pn.rolloffFactor = 0; if (pn.positionX) { pn.positionX.value = at.x; pn.positionY.value = at.y + 1.4; pn.positionZ.value = at.z; } else pn.setPosition(at.x, at.y + 1.4, at.z); g.connect(pn); pn.connect(this.master); }
+    else g.connect(this.master);
+    s.start(t);
     return true;
   }
   burst(freq, dur, gain, dist = 0, type = 'lowpass', q = 0.7) {
@@ -276,32 +293,35 @@ export class Sfx {
   gun(item, dist = 0) {
     const id = item.id, ty = item.type;
     const name = id === 'deagle' || id === 'magnum' ? 'deagle' : /^ak|sks|fal|scar/.test(id) ? 'ak' : ty === 'rifle' ? 'rifle' : ty === 'smg' ? 'smg' : ty === 'shotgun' ? 'shotgun' : ty === 'sniper' ? 'sniper' : ty === 'launcher' ? 'launch' : 'pistol';
-    if (this.play(name, { dist, vol: 0.9, far: 400 })) { if (dist > 40) this.play('tail', { dist: dist * 0.5, vol: 0.5, far: 500 }); return; }
+    const at = dist; const d = typeof at === 'number' ? at : at && this.lp ? Math.hypot(at.x - this.lp.x, at.z - this.lp.z) : 0;
+    if (this.play(name, { at, vol: 0.9, ref: 10, roll: 1.1, far: 420 })) { if (d > 45) this.play('tail', { at, vol: 0.45, ref: 40, roll: 0.6, far: 500 }); return; }
+    dist = d;
     const heavy = { pistol: 1, smg: 0.8, rifle: 1.4, shotgun: 1.8, sniper: 2, launcher: 1.2 }[ty] || 1;
     this.burst(1800 / heavy, 0.12 * heavy, 0.9, dist); this.burst(400, 0.25 * heavy, 0.5 * heavy, dist); this.tone(120 / heavy, 0.08, 0.3, 'sine', dist, -60);
   }
-  swing() { this.play('swing', { vol: 0.6, jitter: 0.15 }) || this.burst(900, 0.12, 0.25, 0, 'bandpass', 2); }
-  hit(dist = 0) { this.play('punch', { dist, vol: 0.8, jitter: 0.15 }) || (this.burst(300, 0.1, 0.6, dist), this.tone(90, 0.08, 0.3, 'sine', dist)); }
-  flesh(dist = 0) { this.play('flesh', { dist, vol: 0.7, jitter: 0.15 }); }
-  ricochet(dist = 0) { this.play('ricochet', { dist, vol: 0.35, jitter: 0.25, far: 80 }); }
+  swing(at = null) { this.play('swing', { at, vol: 0.5, jitter: 0.15, ref: 1.5, roll: 2, far: 30 }) || (!at && this.burst(900, 0.12, 0.25, 0, 'bandpass', 2)); }
+  hit(dist = 0) { this.play('punch', { at: dist, vol: 0.8, jitter: 0.15, ref: 2, roll: 1.8, far: 60 }) || (this.burst(300, 0.1, 0.6, dist), this.tone(90, 0.08, 0.3, 'sine', dist)); }
+  flesh(at = null) { this.play('flesh', { at, vol: 0.7, jitter: 0.15, ref: 2, roll: 1.8, far: 60 }); }
+  ricochet(at = null) { this.play('ricochet', { at, vol: 0.35, jitter: 0.25, ref: 3, roll: 1.6, far: 70 }); }
   headshot() { this.play('flesh', { vol: 0.9, rate: 1.2 }) || (this.tone(1400, 0.08, 0.15, 'triangle'), this.burst(2500, 0.06, 0.3, 0, 'highpass')); }
   hitmark() { this.tone(1800, 0.04, 0.08, 'square'); }
-  metal(dist = 0) { this.play('metal', { dist, vol: 0.6, jitter: 0.2, far: 100 }) || (this.tone(600 + Math.random() * 300, 0.25, 0.25, 'triangle', dist, -200), this.burst(3000, 0.08, 0.3, dist, 'highpass')); }
-  explosion(dist = 0) { this.play('explosion', { dist, vol: 1, far: 600 }) || (this.burst(200, 1.4, 1.2, dist), this.burst(900, 0.4, 0.8, dist), this.tone(50, 0.8, 0.6, 'sine', dist, -30)); }
-  reload(item) {
-    const ty = item?.type;
-    if (ty === 'shotgun' && this.play('pump', { vol: 0.7 })) return;
-    if (ty === 'sniper' && this.play('bolt', { vol: 0.7 })) return;
-    if (this.play('magout', { vol: 0.7 })) { this.play('magin', { vol: 0.8, delay: Math.min(1.2, (item?.reload || 1.6) * 0.55) }); return; }
-    this.tone(400, 0.05, 0.12, 'square'); setTimeout(() => this.tone(300, 0.06, 0.12, 'square'), 180);
+  metal(dist = 0) { this.play('metal', { at: dist, vol: 0.6, jitter: 0.2, ref: 3, roll: 1.5, far: 80 }) || (this.tone(600 + Math.random() * 300, 0.25, 0.25, 'triangle', dist, -200), this.burst(3000, 0.08, 0.3, dist, 'highpass')); }
+  explosion(dist = 0) { this.play('explosion', { at: dist, vol: 1, ref: 20, roll: 0.9, far: 600 }) || (this.burst(200, 1.4, 1.2, dist), this.burst(900, 0.4, 0.8, dist), this.tone(50, 0.8, 0.6, 'sine', dist, -30)); }
+  // handling noises are quiet and short-range (about 25 m)
+  reload(item, at = null) {
+    const ty = item?.type, o = { at, ref: 1.5, roll: 2.2, far: 28 };
+    if (ty === 'shotgun' && this.play('pump', { ...o, vol: 0.32 })) return;
+    if (ty === 'sniper' && this.play('bolt', { ...o, vol: 0.32 })) return;
+    if (this.play('magout', { ...o, vol: 0.28 })) { this.play('magin', { ...o, vol: 0.32, delay: Math.min(1.2, (item?.reload || 1.6) * 0.55) }); return; }
+    if (!at) { this.tone(400, 0.05, 0.06, 'square'); setTimeout(() => this.tone(300, 0.06, 0.06, 'square'), 180); }
   }
-  cycle(item) { if (item?.type === 'shotgun') this.play('pump', { vol: 0.55, delay: 0.25 }); else if (item?.bolt) this.play('bolt', { vol: 0.55, delay: 0.3 }); }
-  dry() { this.play('dry', { vol: 0.6 }) || this.tone(900, 0.03, 0.1, 'square'); }
+  cycle(item, at = null) { const o = { at, ref: 1.5, roll: 2.2, far: 28, vol: 0.28 }; if (item?.type === 'shotgun') this.play('pump', { ...o, delay: 0.25 }); else if (item?.bolt) this.play('bolt', { ...o, delay: 0.3 }); }
+  dry() { this.play('dry', { vol: 0.35 }) || this.tone(900, 0.03, 0.1, 'square'); }
   cash() { this.play('coins', { vol: 0.5, jitter: 0.1 }) || (this.tone(1300, 0.08, 0.15, 'triangle'), setTimeout(() => this.tone(1700, 0.12, 0.15, 'triangle'), 80)); }
   click() { this.play('click', { vol: 0.4, jitter: 0.05 }) || this.tone(900, 0.03, 0.1, 'square'); }
   denied() { this.tone(200, 0.15, 0.12, 'sawtooth'); }
-  step(dist = 0) { this.play('step' + (1 + ((Math.random() * 4) | 0)), { dist, vol: 0.35, jitter: 0.12, far: 40 }) || this.burst(500 + Math.random() * 300, 0.06, 0.12, dist); }
-  alarm(dist = 0) { this.play('alarm', { dist, vol: 0.6, jitter: 0, far: 200 }) || [0, 1, 2, 3, 4, 5].forEach(i => setTimeout(() => this.tone(i % 2 ? 700 : 950, 0.25, 0.22, 'sawtooth', dist), i * 260)); }
+  step(at = null) { this.play('step' + (1 + ((Math.random() * 4) | 0)), { at, vol: 0.3, jitter: 0.12, ref: 1, roll: 2.5, far: 30 }) || this.burst(500 + Math.random() * 300, 0.06, 0.12, dist); }
+  alarm(dist = 0) { this.play('alarm', { at: dist, vol: 0.6, jitter: 0, ref: 12, roll: 1, far: 200 }) || [0, 1, 2, 3, 4, 5].forEach(i => setTimeout(() => this.tone(i % 2 ? 700 : 950, 0.25, 0.22, 'sawtooth', dist), i * 260)); }
   pick() { this.play('click', { vol: 0.3, rate: 1.3 }) || this.tone(1500, 0.03, 0.12, 'square'); }
   lockpick() { this.play('lockpick', { vol: 0.5, jitter: 0.2 }) || this.metal(); }
   levelup() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.2, 0.18, 'triangle'), i * 110)); }

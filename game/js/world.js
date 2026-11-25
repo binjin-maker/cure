@@ -101,11 +101,14 @@ export function buildWorld(scene, KIT) {
   const fillPlain = (style) => style === 'trim' ? [['trim-plain-3', 3], ['brick-plain-1', 1]] : style === 'metal' ? [['metal-plain-3', 3], ['metal-plain-1', 1]] : [['brick-plain-4', 4], ['brick-plain-3', 3], ['brick-plain-1', 1]];
   // kit facade on rect [x0..x1, z0..z1]; floors = array of floor heights; doors = { side: alongCoord }
   const kitShell = (o) => {
-    const { x0, z0, x1, z1, y0 = 0.15, floors, style = 'brick', ground = 'brick', doors = {}, interior = false, cornice = 'brick', closedDoors = false, pattern } = o;
+    const { x0, z0, x1, z1, y0 = 0.15, floors, style = 'brick', ground = 'brick', doors = {}, interior = false, cornice = 'brick', closedDoors = false, pattern, only, plainBack = false } = o;
+    const front = Object.keys(doors)[0];
     const top = y0 + floors.reduce((a, b) => a + b, 0);
     const upper = pattern || pick([['brick-window-trim'], ['brick-window-square-single'], ['brick-window-trim-single'], ['brick-window-trim', 'brick-window-trim-single'], ['brick-window-square-single', 'brick-plain-3']]);
     const upperTrim = ['trim-window', 'trim-window', 'trim-plain-3'];
     for (const side of ['n', 's', 'w', 'e']) {
+      if (only && side !== only) continue;
+      const back = plainBack && side !== front;
       const horiz = side === 'n' || side === 's', len = horiz ? x1 - x0 : z1 - z0, slots = Math.round(len / 2);
       const ry = ROT[side];
       const doorAt = doors[side];
@@ -121,7 +124,8 @@ export function buildWorld(scene, KIT) {
             else if (ground === 'metal') main = Math.random() < 0.78 ? 'metal-firstfloor-window' : 'metal-firstfloor-wall';
             else if (ground === 'trim') main = Math.random() < 0.7 ? 'trim-firstfloor-window-001' : 'trim-firstfloor-wall';
             else main = pick(['brick-window-square-single', 'brick-plain-3', 'brick-window-trim-single']);
-          } else main = style === 'trim' ? pick(upperTrim) : style === 'metal' ? pick(['metal-window-half', 'metal-plain-3', 'metal-fullwindow']) : upper[(i + f) % upper.length];
+          } else if (back && (i + f) % 3) main = style === 'trim' ? 'trim-plain-3' : style === 'metal' ? 'metal-plain-3' : 'brick-plain-3';
+          else main = style === 'trim' ? pick(upperTrim) : style === 'metal' ? pick(['metal-window-half', 'metal-plain-3', 'metal-fullwindow']) : upper[(i + f) % upper.length];
           placeK(main, px, y, pz, ry);
           if (isDoor && f === 0 && closedDoors) placeK(ground === 'metal' ? 'door-2' : 'door-1', px + (horiz ? 0.5 : 0), y, pz, ry);
           let rest = fh - 3, yy = y + 3;
@@ -587,6 +591,7 @@ export function buildWorld(scene, KIT) {
   pts.push(...props);
   const free = (x0, z0, x1, z1) => !reserved.some(r => x0 < r[2] && x1 > r[0] && z0 < r[3] && z1 > r[1]) && !pts.some(([px, pz, r]) => px > x0 - r && px < x1 + r && pz > z0 - r && pz < z1 + r);
   let lastNf = 0;
+  let ringOnly = false;
   const fill = (x0, z0, x1, z1, face, forceNf) => {
     x1 = x0 + Math.max(6, Math.round((x1 - x0) / 2) * 2); z1 = z0 + Math.max(6, Math.round((z1 - z0) / 2) * 2);
     let nf = [2, 3, 3, 4, 4, 5, 6][randi(0, 6)]; if (nf === lastNf) nf += nf > 3 ? -1 : 1; if (forceNf) nf = forceNf === lastNf ? forceNf + 1 : forceNf; lastNf = nf;
@@ -595,7 +600,7 @@ export function buildWorld(scene, KIT) {
     const horiz = face === 'n' || face === 's';
     const along0 = horiz ? x0 : z0, span = horiz ? x1 - x0 : z1 - z0;
     const doorAt = along0 + 1 + 2 * Math.floor((span / 2) * (Math.random() < 0.5 ? 0.3 : 0.65));
-    const top = kitShell({ x0, z0, x1, z1, floors: Array(nf).fill(3), style, ground, doors: { [face]: doorAt }, closedDoors: true, cornice: style === 'trim' ? 'trim' : pick(['brick', 'brick', 'metal']) });
+    const top = kitShell({ x0, z0, x1, z1, floors: Array(nf).fill(3), style, ground, doors: { [face]: doorAt }, closedDoors: true, plainBack: true, only: ringOnly ? face : undefined, cornice: style === 'trim' ? 'trim' : pick(['brick', 'brick', 'metal']) });
     B.box('wall', (x0 + x1) / 2, 0.15, (z0 + z1) / 2, x1 - x0 + 0.4, top + 0.85, z1 - z0 + 0.4, { invisible: true });
     B.box('roofK', (x0 + x1) / 2, top - 0.2, (z0 + z1) / 2, x1 - x0 - 0.02, 0.2, z1 - z0 - 0.02, { solid: false });
     for (let k = 0; k < randi(1, 3); k++) placeK('prop-acunit', rand(x0 + 1.5, x1 - 1.5), top, rand(z0 + 1.5, z1 - 1.5), randi(0, 3) * Math.PI / 2, 1.6);
@@ -635,6 +640,7 @@ export function buildWorld(scene, KIT) {
       }
     }
   }));
+  ringOnly = true;
   for (const side of ['n', 's', 'w', 'e']) {
     let t = -EDGE - 10;
     while (t < EDGE + 10) {
@@ -646,6 +652,7 @@ export function buildWorld(scene, KIT) {
       t += (m ? ((side === 'n' || side === 's') ? m.x1 - m.x0 : m.z1 - m.z0) : len) + 0.3;
     }
   }
+  ringOnly = false;
   // iron gates across alley mouths, utility poles + wires, trees, litter, potholes
   const fillers = W.buildings.filter(b => b.filler);
   for (const a of fillers) for (const c of fillers) {
@@ -766,7 +773,7 @@ export function buildWorld(scene, KIT) {
       const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
       tags.push(new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, depthWrite: false }));
     }
-    const gg = new THREE.PlaneGeometry(1, 0.5);
+    const gg = new THREE.PlaneGeometry(1, 0.5), gl = new Map();
     for (const b of W.buildings.filter(b => b.filler && Math.abs(b.x) < EDGE && Math.abs(b.z) < EDGE)) {
       if (Math.random() < 0.45) continue;
       const side = randi(0, 3), w = rand(2, 4.5);
@@ -778,8 +785,9 @@ export function buildWorld(scene, KIT) {
       else if (side === 1) { m.position.set(along, y, b.z1 + off); }
       else if (side === 2) { m.position.set(b.x0 - off, y, along); m.rotation.y = -Math.PI / 2; }
       else { m.position.set(b.x1 + off, y, along); m.rotation.y = Math.PI / 2; }
-      scene.add(m);
+      m.updateMatrix(); (gl.get(m.material) || gl.set(m.material, []).get(m.material)).push(m.matrix.clone());
     }
+    for (const [mat, list] of gl) { const im = new THREE.InstancedMesh(gg, mat, list.length); list.forEach((mm, i) => im.setMatrixAt(i, mm)); im.computeBoundingSphere(); scene.add(im); }
   }
   // street litter on curbs
   for (let i = 0; i < 260; i++) {
